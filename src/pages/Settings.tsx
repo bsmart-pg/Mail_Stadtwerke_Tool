@@ -7,11 +7,13 @@ import { saveMultipleSettings, getSettings } from '../services/SupabaseService';
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState({
     email: 'stadtwerke@example.com',
+    emailForward: 'test@test.de',
     refreshInterval: '5',
     customerNumberRequired: true,
     defaultCategory: 'unkategorisiert',
     autoReply: true,
     defaultReplyTemplate: 'Sehr geehrte(r) Frau/Herr,\n\nVielen Dank für Ihre Nachricht. Für eine schnellere Bearbeitung Ihres Anliegens benötigen wir Ihre Kundennummer.\n\nBitte teilen Sie uns diese mit, indem Sie auf diese E-Mail antworten.\n\nMit freundlichen Grüßen\nIhr Stadtwerke-Team',
+    defaultUnrecognizableReplyTemplate: "Leider konnte das anliegen nciht automatisch zugeordnet werden."
   });
 
   const [outlookStatus, setOutlookStatus] = useState({
@@ -68,11 +70,13 @@ const Settings: React.FC = () => {
       // Konvertiere die Einstellungen in das richtige Format
       const settingsToSave: { [key: string]: string } = {
         email: settings.email,
+        emailForward: settings.emailForward,
         refreshInterval: settings.refreshInterval.toString(),
         customerNumberRequired: settings.customerNumberRequired.toString(),
         defaultCategory: settings.defaultCategory,
         autoReply: settings.autoReply.toString(),
-        defaultReplyTemplate: settings.defaultReplyTemplate
+        defaultReplyTemplate: settings.defaultReplyTemplate,
+        defaultUnrecognizableReplyTemplate: settings.defaultUnrecognizableReplyTemplate
       };
 
       await saveMultipleSettings(settingsToSave);
@@ -231,6 +235,20 @@ const Settings: React.FC = () => {
                 name="email"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 value={settings.email}
+                onChange={handleSettingsChange}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                E-Mail Adresse zur Weiterleitung
+              </label>
+              <input
+                type="email"
+                id="emailForward"
+                name="emailForward"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                value={settings.emailForward}
                 onChange={handleSettingsChange}
               />
             </div>
@@ -398,6 +416,19 @@ const Settings: React.FC = () => {
               rows={6}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               value={settings.defaultReplyTemplate}
+              onChange={handleSettingsChange}
+              disabled={!settings.autoReply}
+            />
+
+            <label htmlFor="defaultUnrecognizableReplyTemplate" className="block text-sm font-medium text-gray-700 mb-2">
+              Standardvorlage für nicht kategorisierbare Emails
+            </label>
+            <textarea
+              id="defaultUnrecognizableReplyTemplate"
+              name="defaultUnrecognizableReplyTemplate"
+              rows={6}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+              value={settings.defaultUnrecognizableReplyTemplate}
               onChange={handleSettingsChange}
               disabled={!settings.autoReply}
             />

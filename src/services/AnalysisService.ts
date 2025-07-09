@@ -29,7 +29,7 @@ class AnalysisService {
   /**
    * Startet die Hintergrund-Analyse für eine E-Mail
    */
-  async startBackgroundAnalysis(emailId: string, messageId: string): Promise<void> {
+  async startBackgroundAnalysis(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
     try {
       console.log(`Starte Hintergrund-Analyse für E-Mail ${emailId}`);
 
@@ -105,7 +105,7 @@ class AnalysisService {
       if (combinedResult.customerNumber && combinedResult.category && 
           combinedResult.allCustomerNumbers.length > 0 && combinedResult.allCategories.length > 0) {
         console.log(`Starte Weiterleitungsprozess - Kundennummer und Kategorie gefunden`);
-        await this.processForwarding(emailId, messageId, combinedResult);
+        await this.processForwarding(emailId, messageId, combinedResult, forwardingEmail);
       } else {
         console.log(`Keine Weiterleitung - unvollständige Analyse:`, {
           customerNumber: combinedResult.customerNumber,
@@ -175,21 +175,28 @@ class AnalysisService {
   /**
    * Schritt 2: Analysiert die Bild-Anhänge
    */
-  private async analyzeEmailImages(email: any): Promise<ImageAnalysisResult> {
+  private async analyzeEmailImages(email: any): Promise<{
+    customerNumber: string | null;
+    category: string | null;
+    allCustomerNumbers?: string[];
+    allCategories?: string[];
+    timestamp: string;
+    imageCount: number,
+  }> {
     try {
       console.log(`Schritt 2: Bild-Analyse für E-Mail ${email.id}`);
       
       if (!email.hasAttachments || !email.attachments) {
         console.log(`E-Mail ${email.id} hat keine Anhänge - überspringe Bild-Analyse`);
         return {
-          customerNumber: undefined,
-          category: undefined,
+          customerNumber: null,
+          category: null,
           imageCount: 0,
           timestamp: new Date().toISOString()
         };
       }
 
-      const imageResults: Array<{ customerNumber?: string; category?: string }> = [];
+      const imageResults: Array<{ customerNumber?: string; category?: string , allCustomerNumbers?: string[], allCategories?: string[]}> = [];
       let imageCount = 0;
 
       // Analysiere alle Bild-Anhänge
@@ -221,29 +228,74 @@ class AnalysisService {
             console.log(`Bild ${imageCount} analysiert:`, imageResult);
           } catch (error) {
             console.error(`Fehler bei Analyse von Bild ${imageCount}:`, error);
-            imageResults.push({ customerNumber: undefined, category: undefined });
+            imageResults.push({ customerNumber: undefined, category: undefined , allCustomerNumbers: undefined, allCategories: undefined});
+          }
+        }
+        else if (attachment.contentType?.startsWith('application/pdf')) {
+          imageCount++;
+          try {
+            console.log(`Analysiere PDF ${imageCount}: ${attachment.name}`);
+            
+            let base64: string;
+            
+            // Verwende bereits geladene base64-Daten oder lade sie neu
+            if (attachment.contentBytes) {
+              base64 = attachment.contentBytes;
+              console.log(`Verwende bereits geladene base64-Daten für ${attachment.name}`);
+            } else if (attachment.id) {
+              console.log(`Lade base64-Inhalt für ${attachment.name}`);
+              const buffer = await GraphService.getAttachmentContent(email.id, attachment.id);
+              base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+            } else {
+              console.warn(`PDF-Attachment ${attachment.name} hat keine ID und keine base64-Daten - überspringe`);
+              continue;
+            }
+            
+            // Analysiere das PDF
+            const imageResult = await openAIService.analyzePdf(base64);
+            imageResults.push(imageResult);
+            
+            console.log(`PDF ${imageCount} analysiert:`, imageResult);
+          } catch (error) {
+            console.error(`Fehler bei Analyse von PDF ${imageCount}:`, error);
+            imageResults.push({ customerNumber: undefined, category: undefined , allCustomerNumbers: undefined, allCategories: undefined});
           }
         }
       }
 
       if (imageCount > 0) {
         // Kombiniere die Bild-Ergebnisse (erste gefundene Kundennummer/Kategorie)
+        let combinedAllCustomerNumbers = []
+        let combinedAllCategories = []
+        for (let i = 0; i < imageCount; i++) {
+          if(imageResults[0].allCustomerNumbers && imageResults[0].allCustomerNumbers.length > 0){
+            combinedAllCustomerNumbers.push(...imageResults[i].allCustomerNumbers)
+          }
+          if(imageResults[0].allCategories && imageResults[0].allCategories.length > 0){
+            combinedAllCategories.push(...imageResults[i].allCategories)
+          }
+          
+        }
         const combinedResult = {
           customerNumber: imageResults.find(r => r.customerNumber)?.customerNumber || null,
-          category: imageResults.find(r => r.category)?.category || null
+          category: imageResults.find(r => r.category)?.category || null,
+          allCustomerNumbers: combinedAllCustomerNumbers,
+          allCategories: combinedAllCategories,
         };
 
         return {
           customerNumber: combinedResult.customerNumber,
           category: combinedResult.category,
           imageCount: imageCount,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          allCustomerNumbers: combinedResult.allCustomerNumbers,
+          allCategories: combinedResult.allCategories,
         };
       } else {
         console.log(`E-Mail ${email.id} hat keine analysierbaren Bilder`);
         return {
-          customerNumber: undefined,
-          category: undefined,
+          customerNumber: null,
+          category: null,
           imageCount: 0,
           timestamp: new Date().toISOString()
         };
@@ -251,8 +303,8 @@ class AnalysisService {
     } catch (error) {
       console.error(`Fehler bei Bild-Analyse für E-Mail ${email.id}:`, error);
       return {
-        customerNumber: undefined,
-        category: undefined,
+        customerNumber: null,
+        category: null,
         imageCount: 0,
         timestamp: new Date().toISOString()
       };
@@ -279,30 +331,51 @@ class AnalysisService {
     let allCustomerNumbers: string[] = [];
     let allCategories: string[] = [];
 
-    // Verwende die Arrays aus der Text-Analyse (diese sind vollständig)
-    allCustomerNumbers = textResult.allCustomerNumbers || [];
-    allCategories = textResult.allCategories || [];
+    // // Verwende die Arrays aus der Text-Analyse (diese sind vollständig)
+    // allCustomerNumbers = textResult.allCustomerNumbers || [];
+    // allCategories = textResult.allCategories || [];
+
 
     // Kundennummer: Text hat Vorrang
-    if (textResult.customerNumber) {
+    if (textResult.customerNumber && textResult.customerNumber != null) {
       customerNumber = textResult.customerNumber;
-    } else if (imageResult.customerNumber) {
-      customerNumber = imageResult.customerNumber;
+      allCustomerNumbers.push(customerNumber);
+      allCustomerNumbers.push(...textResult.allCustomerNumbers);
+    }
+    if (imageResult.customerNumber && imageResult.customerNumber != null) {
+      if (customerNumber == null){
+        customerNumber = imageResult.customerNumber;
+      }  
       // Füge Bild-Kundennummer hinzu, falls nicht bereits vorhanden
-      if (!allCustomerNumbers.includes(imageResult.customerNumber)) {
-        allCustomerNumbers.push(imageResult.customerNumber);
-      }
+      allCustomerNumbers.push(imageResult.customerNumber);
+      
+      allCustomerNumbers.push(...imageResult.allCustomerNumbers);
     }
 
     // Kategorie: Text hat Vorrang
-    if (textResult.category) {
+    if (textResult.category && textResult.category != "Sonstiges") {
       category = textResult.category;
-    } else if (imageResult.category) {
-      category = imageResult.category;
-      // Füge Bild-Kategorie hinzu, falls nicht bereits vorhanden
-      if (!allCategories.includes(imageResult.category)) {
-        allCategories.push(imageResult.category);
+      allCategories.push(...textResult.allCategories.filter(item => item !== "Sonstiges"));
+    }
+    if (imageResult.category && imageResult.category != "Sonstiges") {
+      if (textResult.category == null || textResult.category == "Sonstiges"){
+        category = imageResult.category;
+        allCategories.push(imageResult.category); 
       }
+      allCategories.push(...imageResult.allCategories.filter(item => item !== "Sonstiges"));
+    }
+    allCategories = [...new Set(allCategories)];
+    allCustomerNumbers = [...new Set(allCustomerNumbers)];
+
+    console.log("allCategories")
+    console.log(allCategories)
+    console.log("allCustomerNumbers")
+    console.log(allCustomerNumbers)
+
+    if(allCategories.length == 0) {
+      console.log("else")
+      category = "Sonstiges"
+      allCategories = ["Sonstiges"]
     }
 
     return {
@@ -321,7 +394,8 @@ class AnalysisService {
       category: string | null;
       allCustomerNumbers: string[];
       allCategories: string[];
-    }
+    },
+    forwardingEmail: string,
   ): Promise<void> {
     try {
       console.log(`Starte Weiterleitungsprozess für E-Mail ${emailId}`);
@@ -339,7 +413,7 @@ class AnalysisService {
         const combination = combinations[i];
         
         try {
-          await this.forwardEmailWithTags(fullEmail, combination, i + 1, combinations.length);
+          await this.forwardEmailWithTags(fullEmail, combination, i + 1, combinations.length, forwardingEmail);
           console.log(`Weiterleitung ${i + 1}/${combinations.length} erfolgreich gesendet`);
         } catch (error) {
           console.error(`Fehler bei Weiterleitung ${i + 1}/${combinations.length}:`, error);
@@ -362,15 +436,14 @@ class AnalysisService {
   private createForwardingCombinations(analysisResult: {
     allCustomerNumbers: string[];
     allCategories: string[];
-  }): Array<{ customerNumber: string | null; category: string }> {
-    const combinations: Array<{ customerNumber: string | null; category: string }> = [];
-
+  }): Array<{ customerNumber: string | null; category: Array<string> }> {
+    const combinations: Array<{ customerNumber: string | null; category: Array<string> }> = [];
+    console.log(analysisResult)
     // Nur weiterleiten wenn sowohl Kundennummern als auch Kategorien vorhanden sind
-    if (analysisResult.allCustomerNumbers.length > 0 && analysisResult.allCategories.length > 0) {
+    if (analysisResult.allCustomerNumbers.length > 0 && analysisResult.allCategories.length > 0 && analysisResult.allCategories[0] != "Sonstiges") {
       analysisResult.allCustomerNumbers.forEach(customerNumber => {
-        analysisResult.allCategories.forEach(category => {
+          const category = analysisResult.allCategories
           combinations.push({ customerNumber, category });
-        });
       });
     } else {
       console.log('Keine Weiterleitungskombinationen erstellt - unvollständige Daten:', {
@@ -384,13 +457,16 @@ class AnalysisService {
 
   private async forwardEmailWithTags(
     email: any, 
-    combination: { customerNumber: string | null; category: string }, 
+    combination: { customerNumber: string | null; category: Array<string> }, 
     index: number, 
-    total: number
+    total: number,
+    forwardingEmail: string
   ): Promise<void> {
+    console.log("following combo")
+    console.log(combination)
     try {
       // Erstelle den Weiterleitungsbetreff mit Tags
-      let forwardSubject = `[${combination.category}]`;
+      let forwardSubject = JSON.stringify(combination.category);
       if (combination.customerNumber) {
         forwardSubject += ` [KD: ${combination.customerNumber}]`;
       }
@@ -403,7 +479,7 @@ class AnalysisService {
       let forwardBody = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">`;
       forwardBody += `<h3 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">AUTOMATISCHE WEITERLEITUNG</h3>`;
       forwardBody += `<div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0;">`;
-      forwardBody += `<p><strong>Kategorie:</strong> ${combination.category}</p>`;
+      forwardBody += `<p><strong>Kategorie:</strong> ${JSON.stringify(combination.category)}</p>`;
       forwardBody += `<p><strong>Kundennummer:</strong> ${combination.customerNumber || 'Nicht gefunden'}</p>`;
       if (total > 1) {
         forwardBody += `<p><strong>Weiterleitung:</strong> ${index} von ${total}</p>`;
@@ -427,20 +503,27 @@ class AnalysisService {
 
       // Konfigurierbare Ziel-E-Mail-Adressen (später aus Einstellungen laden)
       const targetRecipients = [
-        'atug.bedran@outlook.com' // Ziel-E-Mail-Adresse für Weiterleitungen
+        forwardingEmail // Ziel-E-Mail-Adresse für Weiterleitungen
       ];
-
+      
       // Sende die tatsächliche Weiterleitung
       console.log('Sende Weiterleitung:', {
         subject: forwardSubject,
         customerNumber: combination.customerNumber,
-        category: combination.category,
+        category: JSON.stringify(combination.category),
         index: index,
         total: total,
         recipients: targetRecipients
       });
-
-      await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients);
+      
+      if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
+        console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
+        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments);
+      }
+      else{
+        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients);
+      }
+      
       
       console.log(`✅ Weiterleitung ${index}/${total} erfolgreich an ${targetRecipients.join(', ')} gesendet`);
 

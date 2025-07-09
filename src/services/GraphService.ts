@@ -109,7 +109,7 @@ export const GraphService = {
   /**
    * Sendet eine E-Mail über Microsoft Graph API
    */
-  sendEmail: async (subject: string, body: string, toRecipients: string[]) => {
+  sendEmail: async (subject: string, body: string, toRecipients: string[], mailattachments: Array<Object> = []) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
       
@@ -155,6 +155,7 @@ export const GraphService = {
               address: recipient
             }
           })),
+          attachments: mailattachments,
           importance: 'normal',
           internetMessageHeaders: [
             {

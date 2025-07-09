@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState , useEffect} from 'react';
 import { 
   PlusIcon, 
   TrashIcon, 
@@ -6,106 +6,64 @@ import {
   CheckIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
+import { saveMultipleSettings, getSettings, deleteCategories, getCategories, saveCategories } from '../services/SupabaseService';
+
 
 interface Category {
-  id: string;
   name: string;
   description: string;
-  keywords: string[];
-  count: number;
 }
 
 const Categories: React.FC = () => {
-  const [categories, setCategories] = useState<Category[]>([
-    {
-      id: '1',
-      name: 'Zählerstandmeldungen',
-      description: 'E-Mails mit Zählerstandsmeldungen von Kunden',
-      keywords: ['zählerstand', 'ablesung', 'stromzähler', 'gaszähler', 'wasserzähler'],
-      count: 76
-    },
-    {
-      id: '2',
-      name: 'Abschlagsänderung',
-      description: 'Anfragen zur Änderung des monatlichen Abschlags',
-      keywords: ['abschlag', 'änderung', 'monatlich', 'zahlung', 'anpassen'],
-      count: 42
-    },
-    {
-      id: '3',
-      name: 'Bankverbindungen zur Abbuchung',
-      description: 'Mitteilungen zu Bankverbindungen für Lastschriftverfahren',
-      keywords: ['sepa', 'lastschrift', 'bankverbindung', 'abbuchung', 'konto'],
-      count: 34
-    },
-    {
-      id: '4',
-      name: 'Bankverbindung für Guthaben',
-      description: 'Mitteilungen zu Bankverbindungen für Gutschriften',
-      keywords: ['guthaben', 'rückzahlung', 'überweisung', 'bankverbindung', 'konto'],
-      count: 28
-    }
-  ]);
-  
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');  
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState<Category>({
-    id: '',
     name: '',
     description: '',
-    keywords: [],
-    count: 0
   });
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
   
-  const addKeyword = () => {
-    if (keywordInput.trim() === '') return;
-    
-    if (isAddingNew) {
-      setNewCategory({
-        ...newCategory,
-        keywords: [...newCategory.keywords, keywordInput.trim()]
-      });
-    } else if (editingCategory) {
-      setCategories(cats => 
-        cats.map(cat => 
-          cat.id === editingCategory 
-            ? { ...cat, keywords: [...cat.keywords, keywordInput.trim()] } 
-            : cat
-        )
-      );
-    }
-    
-    setKeywordInput('');
-  };
-  
-  const removeKeyword = (keyword: string) => {
-    if (isAddingNew) {
-      setNewCategory({
-        ...newCategory,
-        keywords: newCategory.keywords.filter(k => k !== keyword)
-      });
-    } else if (editingCategory) {
-      setCategories(cats => 
-        cats.map(cat => 
-          cat.id === editingCategory 
-            ? { ...cat, keywords: cat.keywords.filter(k => k !== keyword) } 
-            : cat
-        )
-      );
-    }
-  };
+
+  // Load categories from Supabase when component mounts
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        console.log('Loading categories from Supabase...');
+        
+        const data = await getCategories();
+        console.log('Categories loaded:', data.length);
+        console.log('Categories:', data);
+
+        setCategories(data.map(
+          cat => ({
+            name: cat.category_name,
+            description: cat.category_description
+          })
+        ));
+      } catch (err) {
+        console.error('Error loading categories:', err);
+        setError('Fehler beim Laden der Kategorien');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCategories();
+  }, []);
+
   
   const handleSaveCategory = () => {
     if (isAddingNew) {
-      const id = `${categories.length + 1}`;
-      setCategories([...categories, { ...newCategory, id }]);
+      saveCategories(newCategory.name, newCategory.description)
+      setCategories([...categories, { ...newCategory }]);
       setNewCategory({
-        id: '',
         name: '',
         description: '',
-        keywords: [],
-        count: 0
       });
       setIsAddingNew(false);
     } else if (editingCategory) {
@@ -113,8 +71,9 @@ const Categories: React.FC = () => {
     }
   };
   
-  const handleDeleteCategory = (id: string) => {
-    setCategories(categories.filter(cat => cat.id !== id));
+  const handleDeleteCategory = (name: string, description: string) => {
+    deleteCategories(name, description)
+    setCategories(categories.filter(cat => (cat.name !== name && cat.description != description)));
   };
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, field: keyof Category) => {
@@ -126,7 +85,7 @@ const Categories: React.FC = () => {
     } else if (editingCategory) {
       setCategories(cats => 
         cats.map(cat => 
-          cat.id === editingCategory 
+          cat.name === editingCategory 
             ? { ...cat, [field]: e.target.value } 
             : cat
         )
@@ -177,40 +136,7 @@ const Categories: React.FC = () => {
               />
             </div>
             
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Schlüsselwörter
-              </label>
-              <div className="flex mb-2">
-                <input
-                  type="text"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-primary"
-                  value={keywordInput}
-                  onChange={(e) => setKeywordInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addKeyword()}
-                  placeholder="Neues Schlüsselwort hinzufügen..."
-                />
-                <button 
-                  className="bg-primary text-white px-4 py-2 rounded-r-md"
-                  onClick={addKeyword}
-                >
-                  Hinzufügen
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {newCategory.keywords.map((keyword, idx) => (
-                  <div key={idx} className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
-                    <span className="text-sm mr-2">{keyword}</span>
-                    <button
-                      className="text-gray-500 hover:text-red-500"
-                      onClick={() => removeKeyword(keyword)}
-                    >
-                      <XMarkIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            
           </div>
           
           <div className="flex justify-end mt-6 space-x-3">
@@ -233,10 +159,10 @@ const Categories: React.FC = () => {
       
       <div className="grid grid-cols-1 gap-6">
         {categories.map((category) => (
-          <div key={category.id} className="bg-white rounded-lg shadow p-6">
+          <div key={category.name} className="bg-white rounded-lg shadow p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">
-                {editingCategory === category.id ? (
+                {editingCategory === category.name ? (
                   <input
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
@@ -248,7 +174,7 @@ const Categories: React.FC = () => {
                 )}
               </h2>
               <div className="flex space-x-2">
-                {editingCategory === category.id ? (
+                {editingCategory === category.name ? (
                   <button
                     className="text-green-600 hover:text-green-800"
                     onClick={handleSaveCategory}
@@ -259,7 +185,7 @@ const Categories: React.FC = () => {
                   <button
                     className="text-gray-600 hover:text-gray-800"
                     onClick={() => {
-                      setEditingCategory(category.id);
+                      setEditingCategory(category.name);
                       setIsAddingNew(false);
                     }}
                   >
@@ -268,7 +194,12 @@ const Categories: React.FC = () => {
                 )}
                 <button
                   className="text-red-600 hover:text-red-800"
-                  onClick={() => handleDeleteCategory(category.id)}
+                  
+                  onClick={() => {
+                    if (window.confirm(`Sind Sie sicher, dass Sie die Kategorie "${category.name}" löschen möchten?`)) {
+                      handleDeleteCategory(category.name, category.description)
+                    }
+                  }}
                 >
                   <TrashIcon className="h-5 w-5" />
                 </button>
@@ -277,7 +208,7 @@ const Categories: React.FC = () => {
             
             <div className="mb-4">
               <h3 className="text-sm font-medium text-gray-500 mb-1">Beschreibung</h3>
-              {editingCategory === category.id ? (
+              {editingCategory === category.name ? (
                 <textarea
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                   value={category.description}
@@ -288,57 +219,6 @@ const Categories: React.FC = () => {
               )}
             </div>
             
-            <div className="mb-4">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Schlüsselwörter</h3>
-              {editingCategory === category.id ? (
-                <>
-                  <div className="flex mb-2">
-                    <input
-                      type="text"
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-primary"
-                      value={keywordInput}
-                      onChange={(e) => setKeywordInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && addKeyword()}
-                      placeholder="Neues Schlüsselwort hinzufügen..."
-                    />
-                    <button 
-                      className="bg-primary text-white px-4 py-2 rounded-r-md"
-                      onClick={addKeyword}
-                    >
-                      Hinzufügen
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {category.keywords.map((keyword, idx) => (
-                      <div key={idx} className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
-                        <span className="text-sm mr-2">{keyword}</span>
-                        <button
-                          className="text-gray-500 hover:text-red-500"
-                          onClick={() => removeKeyword(keyword)}
-                        >
-                          <XMarkIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {category.keywords.map((keyword, idx) => (
-                    <span key={idx} className="bg-gray-100 px-3 py-1 rounded-full text-sm">
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-            
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-medium text-gray-500">Zugeordnete E-Mails</h3>
-              <span className="bg-primary bg-opacity-10 text-primary font-medium px-3 py-1 rounded-full">
-                {category.count}
-              </span>
-            </div>
           </div>
         ))}
       </div>

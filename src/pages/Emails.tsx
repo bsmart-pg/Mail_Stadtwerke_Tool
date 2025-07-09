@@ -49,11 +49,15 @@ const Emails: React.FC = () => {
   const [settings, setSettings] = useState<{
     autoReply: boolean;
     replyCount: number;
+    forwardingEmail: string;
     defaultReplyTemplate: string;
+    defaultUnrecognizableReplyTemplate: string;
   }>({
     autoReply: false,
     replyCount: 0,
-    defaultReplyTemplate: 'Sehr geehrte(r) Frau/Herr,\n\nVielen Dank für Ihre Nachricht. Für eine schnellere Bearbeitung Ihres Anliegens benötigen wir Ihre Kundennummer.\n\nBitte teilen Sie uns diese mit, indem Sie auf diese E-Mail antworten.\n\nMit freundlichen Grüßen\nIhr Stadtwerke-Team'
+    forwardingEmail: "blank",
+    defaultReplyTemplate: 'Sehr geehrte(r) Frau/Herr,\n\nVielen Dank für Ihre Nachricht. Für eine schnellere Bearbeitung Ihres Anliegens benötigen wir Ihre Kundennummer.\n\nBitte teilen Sie uns diese mit, indem Sie auf diese E-Mail antworten.\n\nMit freundlichen Grüßen\nIhr Stadtwerke-Team',
+    defaultUnrecognizableReplyTemplate: "Leider nciht kategorisierbar"
   });
   
   // Protokoll für gesendete automatische Antworten
@@ -99,7 +103,7 @@ const Emails: React.FC = () => {
             const userInfo = await GraphService.getUserInfo();
             setLoggedInUser({
               displayName: userInfo.displayName || '',
-              email: userInfo.mail || userInfo.userPrincipalName || 'atug@bsmarthh.onmicrosoft.com'
+              email: userInfo.mail || userInfo.userPrincipalName || '@bsmarthh.onmicrosoft.com'
             });
             
             // E-Mails laden
@@ -217,7 +221,7 @@ const Emails: React.FC = () => {
 - Abschlagsänderung
 - Bankverbindungen zur Abbuchung/SEPA/Einzugsermächtigung
 - Bankverbindung für Guthaben
-- Nicht definiert (wenn keine andere Kategorie passt)
+- Sonstiges  (wenn keine andere Kategorie passt)
 
 Betreff: ${subject}
 Inhalt: ${body}
@@ -240,11 +244,11 @@ Antworte ausschließlich im folgenden JSON-Format:
           'Abschlagsänderung',
           'Bankverbindungen zur Abbuchung/SEPA/Einzugsermächtigung',
           'Bankverbindung für Guthaben',
-          'Nicht definiert'
+          'Sonstiges'
         ];
         
         if (!validCategories.includes(result.category)) {
-          result.category = 'Nicht definiert';
+          result.category = 'Sonstiges';
         }
         
         return {
@@ -253,11 +257,11 @@ Antworte ausschließlich im folgenden JSON-Format:
         };
       } catch (error) {
         console.error('Fehler beim Parsen der ChatGPT-Antwort:', error);
-        return { customerNumber: null, category: 'Nicht definiert' };
+        return { customerNumber: null, category: 'Sonstiges' };
       }
     } catch (error) {
       console.error('Fehler bei der ChatGPT-Analyse:', error);
-      return { customerNumber: null, category: 'Nicht definiert' };
+      return { customerNumber: null, category: 'Sonstiges' };
     }
   };
 
@@ -347,7 +351,8 @@ Antworte ausschließlich im folgenden JSON-Format:
       console.log('E-Mail erfolgreich gespeichert, starte Hintergrund-Analyse...');
 
       // Starte die Hintergrund-Analyse (läuft asynchron)
-      analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id)
+      console.log("when finished sending to " + settings.forwardingEmail)
+      analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
         .catch(error => {
           console.error('Fehler bei Hintergrund-Analyse:', error);
         });
@@ -635,13 +640,16 @@ Antworte ausschließlich im folgenden JSON-Format:
           // Lade die Einstellungen für automatische Antworten
           const autoReplySettings = storedData.settings.find(s => s.setting_key === 'autoReply');
           const replyTemplateSettings = storedData.settings.find(s => s.setting_key === 'defaultReplyTemplate');
-          
+          const unrecognizableReplySettings = storedData.settings.find(s => s.setting_key === 'defaultUnrecognizableReplyTemplate');
+          const forwardingEmail = storedData.settings.find(s => s.setting_key === 'emailForward');
           setSettings(prev => ({
             ...prev,
             autoReply: autoReplySettings?.setting_value === 'true',
-            defaultReplyTemplate: replyTemplateSettings?.setting_value || prev.defaultReplyTemplate
+            defaultReplyTemplate: replyTemplateSettings?.setting_value || prev.defaultReplyTemplate,
+            defaultUnrecognizableReplyTemplate: unrecognizableReplySettings?.setting_value || prev.defaultReplyTemplate,
+            forwardingEmail: forwardingEmail?.setting_value
           }));
-        }
+        } 
       } catch (error) {
         console.error('Fehler beim Laden der gespeicherten Daten:', error);
       }
@@ -957,9 +965,9 @@ Antworte ausschließlich im folgenden JSON-Format:
                                 )}
                                 {/* Zeige Anzahl der Weiterleitungen */}
                                 {email.all_customer_numbers && email.all_customer_numbers.length > 0 && 
-                                 email.all_categories && email.all_categories.length > 0 && (
+                                 email.all_categories && email.all_categories.length > 0 && ((email.all_categories.length == 1 && email.all_categories[0] == "Sonstiges")? false: true)&&(
                                   <div className="text-xs text-blue-600 mt-1">
-                                    {email.all_customer_numbers.length * email.all_categories.length} Weiterleitungen
+                                    {email.all_customer_numbers.length} Weiterleitungen
                                   </div>
                                 )}
                               </div>
@@ -974,7 +982,7 @@ Antworte ausschließlich im folgenden JSON-Format:
                             )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            {!email.customer_number && !sentReplies[email.id] && (
+                            {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1041,7 +1049,7 @@ Antworte ausschließlich im folgenden JSON-Format:
           originalContent={emailToEdit.content || ''}
           originalDate={emailToEdit.date}
           originalSender={emailToEdit.sender}
-          defaultTemplate={settings.defaultReplyTemplate}
+          defaultTemplate={emailToEdit.customer_number? settings.defaultUnrecognizableReplyTemplate : settings.defaultReplyTemplate }
         />
       )}
     </div>

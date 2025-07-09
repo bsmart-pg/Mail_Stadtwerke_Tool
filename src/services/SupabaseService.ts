@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { IncomingEmail, AutoReply, Setting, RequestStatus } from '../types/supabase';
+import { IncomingEmail, AutoReply, Setting, RequestStatus, Category} from '../types/supabase';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -140,6 +140,41 @@ export const saveSettings = async (key: string, value: string): Promise<Setting 
   return data;
 };
 
+export const saveCategories = async (name: string, description: string): Promise<Category | null> => {
+  const { data, error } = await supabase
+    .from('categories')
+    .upsert([{ category_name: name, category_description: description}])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const deleteCategories = async (name: string, description: string): Promise<Category | null> => {
+  const id = await supabase
+    .from('categories')
+    .select("id")
+    .eq("category_name", name)
+    .eq("category_description", description)
+
+  const { data, error } = await supabase
+    .from('categories').
+    delete().eq("id", id.data?.pop()?.id)
+
+  if (error) throw error;
+  return data;
+};
+
+export const getCategories = async (): Promise<Category[]> => {
+  const { data, error } = await supabase
+    .from('categories')
+    .select('*');
+
+  if (error) throw error;
+  return data || [];
+};
+
 export const getSettings = async (): Promise<Setting[]> => {
   const { data, error } = await supabase
     .from('settings')
@@ -147,6 +182,46 @@ export const getSettings = async (): Promise<Setting[]> => {
 
   if (error) throw error;
   return data || [];
+};
+
+
+// Mehrere Einstellungen auf einmal speichern
+export const saveMultipleCategories = async (categories: { [key: string]: string }): Promise<void> => {
+  try {
+    // Hole zuerst die existierenden Einstellungen
+    const { data: existingCategories, error: fetchError } = await supabase
+      .from('categories')
+      .select('*');
+
+    if (fetchError) throw fetchError;
+
+    // Erstelle ein Map der existierenden Einstellungen
+    const existingCategoriesMap = new Map(
+      existingCategories?.map(category => [category.category_name, category]) || []
+    );
+
+    // Bereite die Einstellungen für das Upsert vor
+    const categoriesArray = Object.entries(categories).map(([name, value]) => {
+      const existingCategory = existingCategoriesMap.get(name);
+      return {
+        id: existingCategory?.id || undefined, // Verwende die existierende ID wenn vorhanden
+        category_name: name,
+        category_description: value,
+        updated_at: new Date().toISOString()
+      };
+    });
+
+    const { error } = await supabase
+      .from('categories')
+      .upsert(categoriesArray, {
+        onConflict: 'category_name'
+      });
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Fehler beim Speichern der Einstellungen:', error);
+    throw error;
+  }
 };
 
 // Mehrere Einstellungen auf einmal speichern

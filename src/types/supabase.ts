@@ -58,3 +58,11 @@ export interface RequestStatus {
   requested_at: Date;
   updated_at: Date;
 } 
+
+export interface Category {
+  id: string;
+  created_at: Date;
+  updated_at: Date;
+  category_name: string;
+  category_description: string;
+}
