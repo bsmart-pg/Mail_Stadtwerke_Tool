@@ -67,6 +67,7 @@ const Categories: React.FC = () => {
       });
       setIsAddingNew(false);
     } else if (editingCategory) {
+      saveCategories(newCategory.name, newCategory.description)
       setEditingCategory(null);
     }
   };

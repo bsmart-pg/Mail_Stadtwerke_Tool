@@ -378,6 +378,8 @@ class AnalysisService {
       allCategories = ["Sonstiges"]
     }
 
+    allCategories = allCategories.filter(a => a !== null)
+    allCustomerNumbers = allCustomerNumbers.filter(a => a !== null)
     return {
       customerNumber,
       category,
