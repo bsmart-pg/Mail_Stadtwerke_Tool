@@ -101,6 +101,36 @@ class AnalysisService {
 
       console.log(`Hintergrund-Analyse für E-Mail ${emailId} abgeschlossen`);
 
+    } catch (error) {
+      console.error(`Fehler bei Hintergrund-Analyse für E-Mail ${emailId}:`, error);
+      
+      // Markiere als abgeschlossen, auch wenn Fehler aufgetreten sind
+      try {
+        await updateEmailAnalysisResults(messageId, {
+          analysis_completed: true,
+          text_analysis_result: `Fehler: ${error instanceof Error ? error.message : String(error)}`,
+          image_analysis_result: null
+        });
+      } catch (updateError) {
+        console.error('Fehler beim Aktualisieren des Fehlerstatus:', updateError);
+      }
+    }
+  }
+
+  async startForwarding(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
+    try {
+
+      console.log(`Start Weiterleitung für E-Mail ${emailId}`);
+
+      const email = await getEmailById(emailId);
+
+      const combinedResult = {
+        customerNumber: email?.customer_number,
+        category: email?.category,
+        allCustomerNumbers: email?.all_customer_numbers,
+        allCategories: email?.all_categories
+      }
+
       // Starte Weiterleitungsprozess nur wenn sowohl Kundennummer als auch Kategorie gefunden wurden
       if (combinedResult.customerNumber && combinedResult.category && 
           combinedResult.allCustomerNumbers.length > 0 && combinedResult.allCategories.length > 0) {
@@ -122,18 +152,7 @@ class AnalysisService {
       }
 
     } catch (error) {
-      console.error(`Fehler bei Hintergrund-Analyse für E-Mail ${emailId}:`, error);
-      
-      // Markiere als abgeschlossen, auch wenn Fehler aufgetreten sind
-      try {
-        await updateEmailAnalysisResults(messageId, {
-          analysis_completed: true,
-          text_analysis_result: `Fehler: ${error instanceof Error ? error.message : String(error)}`,
-          image_analysis_result: null
-        });
-      } catch (updateError) {
-        console.error('Fehler beim Aktualisieren des Fehlerstatus:', updateError);
-      }
+      console.error(`Fehler bei Weiterleitung für E-Mail ${emailId}:`, error);
     }
   }
 

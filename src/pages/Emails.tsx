@@ -1,18 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   MagnifyingGlassIcon, 
-  FunnelIcon,
   TagIcon,
   ExclamationCircleIcon,
   CheckCircleIcon,
   EnvelopeIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  XMarkIcon,
+  PlusIcon
 } from '@heroicons/react/24/outline';
 import MsalService from '../services/MsalService';
 import GraphService from '../services/GraphService';
 import EmailDetail from '../components/EmailDetail';
 import EmailEditor from '../components/EmailEditor';
-import { saveEmailData, saveSettings, updateRequestStatus, getStoredData, getEmailsWithStatus, updateEmailAnalysis } from '../services/SupabaseService';
+import { 
+  saveEmailData,
+  saveSettings,
+  updateRequestStatus,
+  getStoredData,
+  getCategories,
+  getEmailsWithStatus,
+  updateEmailAnalysis,
+  updateForwardingStatus,
+  updateEmailCategories,
+  deleteEmail,
+  deleteForwardingStatus,
+  deleteRequestStatus
+} from '../services/SupabaseService';
 import { IncomingEmail, EMAIL_STATUS, EmailStatus } from '../types/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { openAIService } from '../services/OpenAIService';
@@ -31,9 +45,25 @@ interface DisplayEmail extends IncomingEmail {
   forwarding_completed: boolean;
 }
 
+const loadedData = await getCategories();
+
+const categories = loadedData.map(
+    cat => ([cat.category_name])
+  )
+
+const statusOptions = [
+  { value: 'alle', label: 'Alle' },
+  { value: EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT, label: 'Rückfrage gesendet' },
+  { value: EMAIL_STATUS.WEITERGELEITET, label: 'Weitergeleitet' },
+  { value: "Unbearbeitet", label: 'Unbearbeitet' },
+  { value: EMAIL_STATUS.FEHLENDE_KUNDENNUMMER, label: 'Fehlende Kundennummer' }
+  // Add any other statuses you use
+];
+
 const Emails: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('alle');
+  const [filterStatus, setFilterStatus] = useState('alle');
   const [emails, setEmails] = useState<DisplayEmail[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -70,6 +100,56 @@ const Emails: React.FC = () => {
   // Zustand für den E-Mail-Editor
   const [emailEditorOpen, setEmailEditorOpen] = useState(false);
   const [emailToEdit, setEmailToEdit] = useState<DisplayEmail | null>(null);
+
+  const [openDropdownEmailId, setOpenDropdownEmailId] = useState<string | null>(null);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!(event.target as HTMLElement).closest(".dropdown-wrapper")) {
+        setOpenDropdownEmailId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const handleCategorySelect = (email: DisplayEmail, category: string) => {
+    console.log(`Selected category "${category}" for email: ${email.id}`);
+    setOpenDropdownEmailId(null);
+
+    handleAddCategory(email, category);
+  };
+
+  const handleRemove = (email: DisplayEmail, index: number) => {
+    console.log("press X " + String(email.all_categories[index]))
+
+    const new_cats = email.all_categories.filter((_, i) => i !== index)
+    console.log(new_cats)
+    updateEmailCategories(email.id, {
+      all_categories: new_cats
+    })
+  };
+
+  const handleAddCategory = (email: DisplayEmail, cat: string) => {
+      // Update your state or call your backend here
+      console.log(`Try adding ${cat} to email ${email.id}`);
+
+      email.all_categories.push(cat[0])
+      console.log(email.all_categories)
+      updateEmailCategories(email.id, {
+        all_categories: email.all_categories
+      })
+
+  };
+
+
+  const handleForwardClick = async (emailId: string) => {
+
+    const result = await forwardEmails(emailId);
+  };
   
   // Einstellungen beim Laden der Komponente abrufen (simuliert)
   useEffect(() => {
@@ -170,9 +250,60 @@ const Emails: React.FC = () => {
   }, [outlookConnected]);
   
   // Funktion zum Öffnen einer E-Mail in der Detailansicht
-  const handleEmailClick = (emailId: string, messageId: string) => {
-    setSelectedEmail(emails.find(e => e.id === emailId) || null);
-    setSelectedMessageId(messageId);
+  const handleEmailClick = async(emailId: string, messageId: string) => {
+    console.log("CLICKLCICKLCKICK")
+    try {
+      const emailData = await GraphService.getEmailContent(messageId);
+      setSelectedEmail(emails.find(e => e.id === emailId) || null);
+      setSelectedMessageId(messageId);
+    } catch (error) {
+      if (error.message === "Request failed with status code 404") {
+        console.log("Email nicht abrufbar")
+        alert("Email nicht abrufbar");
+        await deleteRequestStatus(emailId)
+        await deleteForwardingStatus(emailId)
+        await deleteEmail(emailId)
+        setEmails(prevEmails =>
+        prevEmails.filter(em =>
+          em.id !== emailId
+        )
+      );
+      }
+      else{
+        console.log("some Error")
+      }
+    }
+    
+    // setSelectedEmail(emails.find(e => e.id === emailId) || null);
+    // setSelectedMessageId(messageId);
+  };
+
+  const checkExistence = async(emailId: string, messageId: string) => {
+    console.log("CLICKLCICKLCKICK")
+    try {
+      const emailData = await GraphService.getEmailContent(messageId);
+      return true
+    } catch (error) {
+      if (error.message === "Request failed with status code 404") {
+        console.log("Email nicht abrufbar")
+        alert("Email nicht abrufbar");
+        await deleteRequestStatus(emailId)
+        await deleteForwardingStatus(emailId)
+        await deleteEmail(emailId)
+        setEmails(prevEmails =>
+        prevEmails.filter(em =>
+          em.id !== emailId
+        )
+      );
+      }
+      else{
+        console.log("some Error")
+      }
+      return false
+    }
+    
+    // setSelectedEmail(emails.find(e => e.id === emailId) || null);
+    // setSelectedMessageId(messageId);
   };
   
   // Funktion zum Schließen der Detailansicht
@@ -189,6 +320,19 @@ const Emails: React.FC = () => {
         )
       );
       await updateRequestStatus(emailId, newStatus);
+    } catch (error) {
+      console.error('Fehler beim Aktualisieren des Status:', error);
+    }
+  };
+
+  const handleForwardingStatusUpdate = async (emailId: string, newStatus: EmailStatus) => {
+    try {
+      setEmails(prevEmails =>
+        prevEmails.map(email =>
+          email.id === emailId ? { ...email, status: newStatus } : email
+        )
+      );
+      await updateForwardingStatus(emailId, newStatus);
     } catch (error) {
       console.error('Fehler beim Aktualisieren des Status:', error);
     }
@@ -521,20 +665,32 @@ Antworte ausschließlich im folgenden JSON-Format:
     }
   };
   
-  // Filter und Suche anwenden
-  const filteredEmails = emails.filter(email => {
-    const matchesSearch = searchTerm === '' || 
-      (email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-      email.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (email.customer_number?.includes(searchTerm) ?? false);
-    
-    const matchesFilter = filterCategory === 'alle' || 
-      (filterCategory === 'unkategorisiert' && email.status === EMAIL_STATUS.UNKATEGORISIERT) ||
-      (filterCategory === 'ohne-kundennummer' && email.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) ||
-      email.category === filterCategory;
-    
-    return matchesSearch && matchesFilter;
-  });
+
+  const filteredEmails = emails.filter((email) => {
+  const matchesSearch =
+    email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    email.sender?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    email.customer_number?.toLowerCase().includes(searchTerm.toLowerCase());
+
+  const matchesCategory =
+    filterCategory === 'alle' ||
+    (filterCategory === 'unkategorisiert' && !email.category) ||
+    (filterCategory === 'ohne-kundennummer' && !email.customer_number) ||
+    email.category === filterCategory ||
+    (email.all_categories && email.all_categories.includes(filterCategory));
+  
+  let matchesStatus
+  if (filterStatus === "Unbearbeitet") {
+    matchesStatus = (email.status !== "Weitergeleitet" && email.status !== "kundennummer-angefragt");
+  }
+  else {
+    matchesStatus =
+      filterStatus === 'alle' || email.status === filterStatus;
+  }
+  
+
+  return matchesSearch && matchesCategory && matchesStatus;
+});
 
   // Status-Icon basierend auf dem E-Mail-Status
   const getStatusIcon = (status: string, category?: string) => {
@@ -546,9 +702,9 @@ Antworte ausschließlich im folgenden JSON-Format:
       case EMAIL_STATUS.FEHLENDE_KUNDENNUMMER:
         return <ExclamationCircleIcon className="w-5 h-5 text-red-500" />;
       case EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT:
-        return <EnvelopeIcon className="w-5 h-5 text-blue-500" />;
-      case EMAIL_STATUS.ANGEFRAGT:
         return <EnvelopeIcon className="w-5 h-5 text-yellow-500" />;
+      case EMAIL_STATUS.WEITERGELEITET:
+        return <EnvelopeIcon className="w-5 h-5 text-green-500" />;
       default:
         return <EnvelopeIcon className="w-5 h-5 text-gray-500" />;
     }
@@ -567,6 +723,38 @@ Antworte ausschließlich im folgenden JSON-Format:
     } catch (error) {
       console.error('Fehler beim Öffnen des E-Mail-Editors:', error);
       alert('Fehler beim Öffnen des E-Mail-Editors: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+
+    // Manuelles Senden einer automatischen Antwort für eine bestimmte E-Mail
+  const forwardEmails = async (emailId: string) => {
+    try {
+      const email = emails.find(e => e.id === emailId);
+      if (!email) return;
+      // Starte die Hintergrund-Analyse (läuft asynchron)
+      console.log("when finished sending to " + settings.forwardingEmail)
+      analysisService.startForwarding(email.id, email.message_id, settings.forwardingEmail)
+        .catch(error => {
+          console.error('Fehler bei Hintergrund-Analyse:', error);
+        });
+      
+      // Aktualisiere den Status in der Datenbank
+      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+      // Status lokal aktualisieren
+      setEmails(prevEmails =>
+        prevEmails.map(e =>
+          e.id === email.id
+            ? { ...e, status: EMAIL_STATUS.WEITERGELEITET }
+            : e
+        )
+      );
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Fehler beim Weiterleiten' , error);
+      alert('Fehler beim Weiterleiten ' + (error instanceof Error ? error.message : String(error)));
+      const error_message = error instanceof Error ? error.message : String(error)
+      return { success: false, error: error_message};
     }
   };
 
@@ -697,10 +885,10 @@ Antworte ausschließlich im folgenden JSON-Format:
 
   const handleRequestSend = async (emailId: string) => {
     try {
-      await updateRequestStatus(emailId, 'Angefragt');
+      await updateRequestStatus(emailId, 'kundennummer-angefragt');
       setEmails(prevEmails =>
         prevEmails.map(email =>
-          email.id === emailId ? { ...email, status: 'Angefragt' } : email
+          email.id === emailId ? { ...email, status: 'kundennummer-angefragt' } : email
         )
       );
     } catch (error) {
@@ -813,7 +1001,7 @@ Antworte ausschließlich im folgenden JSON-Format:
             )}
             
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-              <div className="relative mb-4 md:mb-0 md:w-1/2">
+              <div className="relative mb-4 md:mb-0 md:w-4/5">
                 <input
                   type="text"
                   placeholder="Suche nach Betreff, Absender oder Kundennummer..."
@@ -825,24 +1013,7 @@ Antworte ausschließlich im folgenden JSON-Format:
               </div>
               
               <div className="flex items-center space-x-4">
-                <div className="flex items-center">
-                  <FunnelIcon className="w-5 h-5 text-gray-500 mr-2" />
-                  <label htmlFor="category-filter" className="mr-2 text-gray-600">Filter:</label>
-                  <select
-                    id="category-filter"
-                    className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                    value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value)}
-                  >
-                    <option value="alle">Alle E-Mails</option>
-                    <option value="Zählerstandmeldungen">Zählerstandmeldungen</option>
-                    <option value="Abschlagsänderung">Abschlagsänderung</option>
-                    <option value="Bankverbindungen zur Abbuchung">Bankverbindungen zur Abbuchung</option>
-                    <option value="Bankverbindung für Guthaben">Bankverbindung für Guthaben</option>
-                    <option value="unkategorisiert">Unkategorisiert</option>
-                    <option value="ohne-kundennummer">Ohne Kundennummer</option>
-                  </select>
-                </div>
+
                 
                 <button
                   className="p-2 rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
@@ -870,12 +1041,24 @@ Antworte ausschließlich im folgenden JSON-Format:
               </div>
             ) : (
               <div className="overflow-x-auto">
-                {filteredEmails.length > 0 ? (
+                {(
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
+                            <label htmlFor="status-filter" className="mr-2 text-gray-600">Status:</label>
+                            <select
+                              id="status-filter"
+                              className="w-40 truncate border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                              value={filterStatus}
+                              onChange={(e) => setFilterStatus(e.target.value)}
+                            >
+                              {statusOptions.map((status) => (
+                                <option key={status.value} value={status.value}>
+                                  {status.label}
+                                </option>
+                              ))}
+                            </select>
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Betreff
@@ -890,7 +1073,20 @@ Antworte ausschließlich im folgenden JSON-Format:
                           Kundennummer
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Kategorie
+                          <label htmlFor="category-filter" className="mr-2 text-gray-600">Kategorie:</label>
+                          <select
+                            id="category-filter"
+                            className="w-40 truncate border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                            value={filterCategory}
+                            onChange={(e) => setFilterCategory(e.target.value)}
+                          >
+                            {
+                              categories.map((cat) => (
+                                <option value={cat}>{cat}</option>
+                              ))
+                            }
+                            <option value="alle">Alle E-Mails</option>
+                          </select>
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Aktionen
@@ -898,10 +1094,9 @@ Antworte ausschließlich im folgenden JSON-Format:
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {filteredEmails.map((email) => (
+                      {filteredEmails.length > 0 ? filteredEmails.map((email) => (
                         <tr 
                           key={email.id}
-                          onClick={() => handleEmailClick(email.id, email.message_id)}
                           className="hover:bg-gray-50 cursor-pointer"
                         >
                           <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -910,7 +1105,7 @@ Antworte ausschließlich im folgenden JSON-Format:
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{email.subject}</div>
+                            <div className="text-sm font-medium text-gray-900"  onClick={() => handleEmailClick(email.id, email.message_id)}>{email.subject}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500">{email.sender}</div>
@@ -951,18 +1146,55 @@ Antworte ausschließlich im folgenden JSON-Format:
                               <div className="space-y-1">
                                 {/* Zeige alle Kategorien an */}
                                 {email.all_categories && email.all_categories.length > 0 ? (
-                                  email.all_categories.map((category, index) => (
-                                    <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-1 mb-1">
-                                      <TagIcon className="mr-1 h-3 w-3" />
-                                      {category}
-                                    </span>
-                                  ))
+                                  <div className="flex flex-wrap">
+                                    {email.all_categories.map((category, index) => (
+                                      <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-1 mb-1">
+                                        <TagIcon className="mr-1 h-3 w-3" />
+                                        {category}
+                                        <button
+                                          onClick={() => {
+                                            if (window.confirm(`Möchten Sie die Kategorie "${category}" wirklich entfernen?`)) {
+                                              handleRemove(email,index);
+                                            }
+                                          }}
+                                          className="ml-1 text-green-700 hover:text-red-600"
+                                        >
+                                          <XMarkIcon className="h-3 w-3" />
+                                        </button>
+                                      </span>
+                                    ))}
+                                  </div>
                                 ) : (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                     <TagIcon className="mr-1 h-3 w-3" />
                                     {email.category}
                                   </span>
                                 )}
+                                {/* Plus icon and dropdown */}
+                                <div className="relative inline-block dropdown-wrapper">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // prevent row click
+                                      setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
+                                    }}
+                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                                  >
+                                    <PlusIcon className="mr-1 h-3 w-3" />
+                                  </button>
+                                    {openDropdownEmailId === email.id && (
+                                      <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
+                                        {categories.map((cat) => (
+                                          <div
+                                            key={cat}
+                                            onClick={() => handleCategorySelect(email, cat)}
+                                            className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
+                                          >
+                                            {cat}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                </div>
                                 {/* Zeige Anzahl der Weiterleitungen */}
                                 {email.all_customer_numbers && email.all_customer_numbers.length > 0 && 
                                  email.all_categories && email.all_categories.length > 0 && ((email.all_categories.length == 1 && email.all_categories[0] == "Sonstiges")? false: true)&&(
@@ -980,6 +1212,25 @@ Antworte ausschließlich im folgenden JSON-Format:
                                 Nicht kategorisiert
                               </span>
                             )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            {(email.customer_number && email.category != "Sonstiges") && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleForwardClick(email.id);
+                                }}
+                                className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                              >
+                                Weiterleitung auslösen
+                              </button>
+                              )}
+                              {email.status === EMAIL_STATUS.WEITERGELEITET && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  Weiterleitung gesendet
+                                </span>
+                              )}
+                            
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
@@ -1005,14 +1256,15 @@ Antworte ausschließlich im folgenden JSON-Format:
                             )}
                           </td>
                         </tr>
-                      ))}
+                      ))
+                      : (
+                        <div className="text-center py-10">
+                          <p className="text-gray-500">Keine E-Mails gefunden</p>
+                        </div>
+                      )}
                     </tbody>
                   </table>
-                ) : (
-                  <div className="text-center py-10">
-                    <p className="text-gray-500">Keine E-Mails gefunden</p>
-                  </div>
-                )}
+                ) }
               </div>
             )}
           </div>

@@ -264,6 +264,63 @@ export const saveMultipleSettings = async (settings: { [key: string]: string }):
 };
 
 // Anfragen-Status aktualisieren
+export const updateForwardingStatus = async (emailId: string, status: string): Promise<RequestStatus | null> => {
+  try {
+    // Aktualisiere zuerst den Status in der incoming_emails Tabelle
+    const { error: emailUpdateError } = await supabase
+      .from('incoming_emails')
+      .update({ status: status, updated_at: new Date() })
+      .eq('id', emailId);
+
+    if (emailUpdateError) throw emailUpdateError;
+
+    // Prüfe dann, ob bereits ein Status existiert
+    const { data: existingStatus, error: checkError } = await supabase
+      .from('forwarding_status')
+      .select()
+      .eq('email_id', emailId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') throw checkError;
+
+    if (existingStatus) {
+      // Aktualisiere den bestehenden Status
+      const { data, error } = await supabase
+        .from('forwarding_status')
+        .update({
+          status: status,
+          updated_at: new Date()
+        })
+        .eq('email_id', emailId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } else {
+      // Erstelle einen neuen Status-Eintrag
+      const { data, error } = await supabase
+        .from('forwarding_status')
+        .insert([{
+          email_id: emailId,
+          status: status,
+          requested_at: new Date(),
+          updated_at: new Date()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    }
+  } catch (error) {
+    console.error('Fehler beim Aktualisieren des Weiterleitungs-Status:', error);
+    throw error;
+  }
+};
+
+
+// Anfragen-Status aktualisieren
 export const updateRequestStatus = async (emailId: string, status: string): Promise<RequestStatus | null> => {
   try {
     // Aktualisiere zuerst den Status in der incoming_emails Tabelle
@@ -315,6 +372,54 @@ export const updateRequestStatus = async (emailId: string, status: string): Prom
     }
   } catch (error) {
     console.error('Fehler beim Aktualisieren des Anfrage-Status:', error);
+    throw error;
+  }
+};
+
+
+// Anfragen-Status aktualisieren
+export const deleteRequestStatus = async (emailId: string) => {
+  try {
+    // Aktualisiere zuerst den Status in der incoming_emails Tabelle
+    const response = await supabase
+      .from('request_status')
+      .delete()
+      .eq('email_id', emailId);
+
+  } catch (error) {
+    console.error('Fehler beim Löschen des Anfrage-Status von Mail ' + emailId + ":", error);
+    throw error;
+  }
+};
+
+
+// Anfragen-Status aktualisieren
+export const deleteForwardingStatus = async (emailId: string) => {
+  try {
+    // Aktualisiere zuerst den Status in der incoming_emails Tabelle
+    const response = await supabase
+      .from('forwarding_status')
+      .delete()
+      .eq('email_id', emailId);
+
+  } catch (error) {
+    console.error('Fehler beim Löschen des Weiterleitungs-Status von Mail ' + emailId + ":", error);
+    throw error;
+  }
+};
+
+
+// Anfragen-Status aktualisieren
+export const deleteEmail = async (emailId: string) => {
+  try {
+    // Aktualisiere zuerst den Status in der incoming_emails Tabelle
+    const response = await supabase
+      .from('incoming_emails')
+      .delete()
+      .eq('id', emailId);
+
+  } catch (error) {
+    console.error('Fehler beim Löschen von Mail ' + emailId + ":", error);
     throw error;
   }
 };
@@ -479,6 +584,34 @@ export const updateEmailAnalysisResults = async (messageId: string, updates: {
         updated_at: new Date().toISOString()
       })
       .eq('message_id', messageId);
+
+    if (error) {
+      console.error('Supabase Update Fehler:', error);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Fehler beim Aktualisieren der Analyse-Ergebnisse:', error);
+    throw error;
+  }
+};
+
+
+export const updateEmailCategories = async (id: string, updates: {
+  category?: string | null;
+  all_categories?: string[] | null;
+}) => {
+  try {
+    console.log('Aktualisiere E-Mail-Categorie:', { id, updates });
+    
+    const { data, error } = await supabase
+      .from('incoming_emails')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
 
     if (error) {
       console.error('Supabase Update Fehler:', error);

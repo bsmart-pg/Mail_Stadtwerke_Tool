@@ -4,7 +4,7 @@ export const EMAIL_STATUS = {
   UNKATEGORISIERT: 'unkategorisiert',
   FEHLENDE_KUNDENNUMMER: 'fehlende-kundennummer',
   KUNDENNUMMER_ANGEFRAGT: 'kundennummer-angefragt',
-  ANGEFRAGT: 'Angefragt'
+  WEITERGELEITET: "Weitergeleitet"
 } as const;
 
 export type EmailStatus = typeof EMAIL_STATUS[keyof typeof EMAIL_STATUS];
