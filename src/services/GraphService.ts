@@ -7,6 +7,7 @@ const GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0';
  * Service für die Microsoft Graph API
  */
 export const GraphService = {
+  deltaLink: null,
   /**
    * Erstellt einen HTTP-Client mit dem aktuellen Access Token
    */
@@ -32,7 +33,19 @@ export const GraphService = {
   getInboxMails: async (maxResults = 50) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
-      const response = await client.get(`/me/mailFolders/inbox/messages?$top=${maxResults}&$orderby=receivedDateTime desc`);
+      let response
+      if (GraphService.deltaLink) {
+        response = await client.get(GraphService.deltaLink);
+        console.log("Query emails at: " + GraphService.deltaLink)
+      }
+      else {
+        response = await client.get(`/me/mailFolders/inbox/messages/delta?$top=${maxResults}&$orderby=receivedDateTime desc`);
+        console.log("Query emails at default")
+      }
+      console.log(response.data["@odata.deltaLink"])
+      console.log(response)
+      GraphService.deltaLink = response.data["@odata.deltaLink"]
+      console.log(response.data.value)
       return response.data.value;
     } catch (error) {
       console.error('Fehler beim Abrufen der E-Mails:', error);

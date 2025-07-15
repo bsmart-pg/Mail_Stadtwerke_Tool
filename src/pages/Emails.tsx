@@ -13,13 +13,14 @@ import MsalService from '../services/MsalService';
 import GraphService from '../services/GraphService';
 import EmailDetail from '../components/EmailDetail';
 import EmailEditor from '../components/EmailEditor';
-import { 
+import SupabaseService, { 
   saveEmailData,
   saveSettings,
   updateRequestStatus,
   getStoredData,
   getCategories,
   getEmailsWithStatus,
+  getEmailByMessageId,
   updateEmailAnalysis,
   updateForwardingStatus,
   updateEmailCategories,
@@ -48,7 +49,7 @@ interface DisplayEmail extends IncomingEmail {
 const loadedData = await getCategories();
 
 const categories = loadedData.map(
-    cat => ([cat.category_name])
+    cat => (cat.category_name)
   )
 
 const statusOptions = [
@@ -116,14 +117,15 @@ const Emails: React.FC = () => {
     };
   }, []);
 
-  const handleCategorySelect = (email: DisplayEmail, category: string) => {
+  const handleCategorySelect = async(email: DisplayEmail, category: string) => {
     console.log(`Selected category "${category}" for email: ${email.id}`);
     setOpenDropdownEmailId(null);
 
     handleAddCategory(email, category);
+    await loadEmails()
   };
 
-  const handleRemove = (email: DisplayEmail, index: number) => {
+  const handleRemove = async(email: DisplayEmail, index: number) => {
     console.log("press X " + String(email.all_categories[index]))
 
     const new_cats = email.all_categories.filter((_, i) => i !== index)
@@ -131,24 +133,26 @@ const Emails: React.FC = () => {
     updateEmailCategories(email.id, {
       all_categories: new_cats
     })
+    await loadEmails()
   };
 
-  const handleAddCategory = (email: DisplayEmail, cat: string) => {
+  const handleAddCategory = async(email: DisplayEmail, cat: string) => {
       // Update your state or call your backend here
       console.log(`Try adding ${cat} to email ${email.id}`);
 
-      email.all_categories.push(cat[0])
+      email.all_categories.push(cat)
       console.log(email.all_categories)
       updateEmailCategories(email.id, {
         all_categories: email.all_categories
       })
+      await loadEmails()
 
   };
 
 
   const handleForwardClick = async (emailId: string) => {
-
     const result = await forwardEmails(emailId);
+    await loadEmails()
   };
   
   // Einstellungen beim Laden der Komponente abrufen (simuliert)
@@ -264,13 +268,15 @@ const Emails: React.FC = () => {
         await deleteForwardingStatus(emailId)
         await deleteEmail(emailId)
         setEmails(prevEmails =>
-        prevEmails.filter(em =>
-          em.id !== emailId
-        )
-      );
+          prevEmails.filter(em =>
+            em.id !== emailId
+          )
+        );
+        await loadEmails()
       }
       else{
         console.log("some Error")
+        await loadEmails()
       }
     }
     
@@ -278,38 +284,12 @@ const Emails: React.FC = () => {
     // setSelectedMessageId(messageId);
   };
 
-  const checkExistence = async(emailId: string, messageId: string) => {
-    console.log("CLICKLCICKLCKICK")
-    try {
-      const emailData = await GraphService.getEmailContent(messageId);
-      return true
-    } catch (error) {
-      if (error.message === "Request failed with status code 404") {
-        console.log("Email nicht abrufbar")
-        alert("Email nicht abrufbar");
-        await deleteRequestStatus(emailId)
-        await deleteForwardingStatus(emailId)
-        await deleteEmail(emailId)
-        setEmails(prevEmails =>
-        prevEmails.filter(em =>
-          em.id !== emailId
-        )
-      );
-      }
-      else{
-        console.log("some Error")
-      }
-      return false
-    }
-    
-    // setSelectedEmail(emails.find(e => e.id === emailId) || null);
-    // setSelectedMessageId(messageId);
-  };
   
   // Funktion zum Schließen der Detailansicht
-  const handleCloseEmailDetail = () => {
+  const handleCloseEmailDetail = async() => {
     setSelectedEmail(null);
     setSelectedMessageId(null);
+    await loadEmails()
   };
   
   const handleStatusUpdate = async (emailId: string, newStatus: EmailStatus) => {
@@ -541,11 +521,26 @@ Antworte ausschließlich im folgenden JSON-Format:
       // Hole dann die E-Mails aus Outlook
       const outlookEmails = await GraphService.getInboxMails(50);
       console.log('Outlook E-Mails geladen:', outlookEmails.length);
+      const deletedEmailIds= outlookEmails.filter(
+        (em: object) => em.hasOwnProperty('@removed')
+      ).map((elem) => {return elem.id})
+      console.log("deleted Mails: ")
+      console.log( deletedEmailIds)
+      const newEmails = outlookEmails.filter(
+        (em: object) => !em.hasOwnProperty('@removed')
+      )
+
+      for (const delId of deletedEmailIds){
+        const email = await getEmailByMessageId(delId)
+        await deleteRequestStatus(email.id)
+        await deleteForwardingStatus(email.id)
+        await deleteEmail(email.id)
+      }
       
       const processedEmails: DisplayEmail[] = [];
       
       // Verarbeite jede E-Mail einzeln
-      for (const outlookEmail of outlookEmails) {
+      for (const outlookEmail of newEmails) {
         try {
           const existingEmail = existingEmailsMap.get(outlookEmail.id);
           
@@ -1183,7 +1178,7 @@ Antworte ausschließlich im folgenden JSON-Format:
                                   </button>
                                     {openDropdownEmailId === email.id && (
                                       <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
-                                        {categories.map((cat) => (
+                                        {categories.filter((item) => !email.all_categories?.includes(item)).map((cat) => (
                                           <div
                                             key={cat}
                                             onClick={() => handleCategorySelect(email, cat)}
@@ -1231,8 +1226,6 @@ Antworte ausschließlich im folgenden JSON-Format:
                                 </span>
                               )}
                             
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
                               <button
                                 onClick={(e) => {
