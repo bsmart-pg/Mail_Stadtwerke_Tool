@@ -66,3 +66,11 @@ export interface Category {
   category_name: string;
   category_description: string;
 }
+
+export interface Flow {
+  id: string;
+  created_at: Date;
+  updated_at: Date;
+  category_name: string;
+  extraction_columns: string[];
+}

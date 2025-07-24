@@ -7,7 +7,8 @@ import {
   Cog6ToothIcon,
   ChartBarIcon,
   ChevronLeftIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  ArrowUpOnSquareIcon
 } from '@heroicons/react/24/outline';
 
 // Benutzerdefiniertes Event für die Seitenleistenumschaltung
@@ -27,6 +28,7 @@ const Sidebar = () => {
     { name: 'Kategorien', path: '/categories', icon: TagIcon },
     { name: 'Statistiken', path: '/statistics', icon: ChartBarIcon },
     { name: 'Einstellungen', path: '/settings', icon: Cog6ToothIcon },
+    { name: 'Flows', path: '/flows', icon: ArrowUpOnSquareIcon },
   ];
   
   // Aktualisiere localStorage, wenn sich isCollapsed ändert

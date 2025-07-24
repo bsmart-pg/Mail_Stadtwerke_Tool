@@ -13,7 +13,7 @@ import MsalService from '../services/MsalService';
 import GraphService from '../services/GraphService';
 import EmailDetail from '../components/EmailDetail';
 import EmailEditor from '../components/EmailEditor';
-import SupabaseService, { 
+import { 
   saveEmailData,
   saveSettings,
   updateRequestStatus,
@@ -103,7 +103,6 @@ const Emails: React.FC = () => {
   const [emailToEdit, setEmailToEdit] = useState<DisplayEmail | null>(null);
 
   const [openDropdownEmailId, setOpenDropdownEmailId] = useState<string | null>(null);
-  const dropdownRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -130,9 +129,16 @@ const Emails: React.FC = () => {
 
     const new_cats = email.all_categories.filter((_, i) => i !== index)
     console.log(new_cats)
-    updateEmailCategories(email.id, {
-      all_categories: new_cats
-    })
+    if (new_cats.length === 0) {
+      updateEmailCategories(email.id, {
+        all_categories: ["Sonstiges"]
+      })
+    } else {
+      updateEmailCategories(email.id, {
+        all_categories: new_cats
+      })
+    }
+    
     await loadEmails()
   };
 
@@ -151,7 +157,7 @@ const Emails: React.FC = () => {
 
 
   const handleForwardClick = async (emailId: string) => {
-    const result = await forwardEmails(emailId);
+    await forwardEmails(emailId);
     await loadEmails()
   };
   
@@ -245,19 +251,19 @@ const Emails: React.FC = () => {
         );
 
         setEmails(displayEmails);
+        setLoading(false);
       } catch (error) {
         console.error('Fehler beim Aktualisieren der E-Mail-Liste:', error);
-      }
-    }, 5000); // Alle 5 Sekunden aktualisieren
-
-    return () => clearInterval(interval);
+      }}, 5000); // Alle 5 Sekunden aktualisieren
+      
+      return () => clearInterval(interval);
   }, [outlookConnected]);
   
   // Funktion zum Öffnen einer E-Mail in der Detailansicht
   const handleEmailClick = async(emailId: string, messageId: string) => {
     console.log("CLICKLCICKLCKICK")
     try {
-      const emailData = await GraphService.getEmailContent(messageId);
+      await GraphService.getEmailContent(messageId);
       setSelectedEmail(emails.find(e => e.id === emailId) || null);
       setSelectedMessageId(messageId);
     } catch (error) {
@@ -279,9 +285,6 @@ const Emails: React.FC = () => {
         await loadEmails()
       }
     }
-    
-    // setSelectedEmail(emails.find(e => e.id === emailId) || null);
-    // setSelectedMessageId(messageId);
   };
 
   
@@ -335,57 +338,6 @@ const Emails: React.FC = () => {
 
     } catch (error) {
       console.error('Fehler beim Senden der automatischen Antwort:', error);
-    }
-  };
-
-  const analyzeEmailContent = async (subject: string, body: string): Promise<{ customerNumber: string | null; category: string | null }> => {
-    try {
-      const prompt = `Analysiere den folgenden E-Mail-Text und extrahiere die Kundennummer (falls vorhanden) und ordne die E-Mail einer der folgenden Kategorien zu:
-- Zählerstandsmeldungen
-- Abschlagsänderung
-- Bankverbindungen zur Abbuchung/SEPA/Einzugsermächtigung
-- Bankverbindung für Guthaben
-- Sonstiges  (wenn keine andere Kategorie passt)
-
-Betreff: ${subject}
-Inhalt: ${body}
-
-Antworte ausschließlich im folgenden JSON-Format:
-{
-  "customerNumber": "gefundene Nummer oder null wenn keine gefunden",
-  "category": "eine der oben genannten Kategorien"
-}`;
-
-      const response = await openAIService.analyzeText(prompt);
-      
-      try {
-        const result = JSON.parse(response);
-        console.log('ChatGPT Analyse Ergebnis:', result);
-        
-        // Validiere die Kategorie
-        const validCategories = [
-          'Zählerstandsmeldungen',
-          'Abschlagsänderung',
-          'Bankverbindungen zur Abbuchung/SEPA/Einzugsermächtigung',
-          'Bankverbindung für Guthaben',
-          'Sonstiges'
-        ];
-        
-        if (!validCategories.includes(result.category)) {
-          result.category = 'Sonstiges';
-        }
-        
-        return {
-          customerNumber: result.customerNumber,
-          category: result.category
-        };
-      } catch (error) {
-        console.error('Fehler beim Parsen der ChatGPT-Antwort:', error);
-        return { customerNumber: null, category: 'Sonstiges' };
-      }
-    } catch (error) {
-      console.error('Fehler bei der ChatGPT-Analyse:', error);
-      return { customerNumber: null, category: 'Sonstiges' };
     }
   };
 
@@ -656,7 +608,7 @@ Antworte ausschließlich im folgenden JSON-Format:
       console.error('Fehler beim Laden der E-Mails:', error);
       setError('Fehler beim Laden der E-Mails aus Outlook');
     } finally {
-      setLoading(false);
+      console.log("DONEODNEDONE");
     }
   };
   

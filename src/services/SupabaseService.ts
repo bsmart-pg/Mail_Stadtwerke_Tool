@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { IncomingEmail, AutoReply, Setting, RequestStatus, Category} from '../types/supabase';
+import { IncomingEmail, AutoReply, Setting, RequestStatus, Category, Flow} from '../types/supabase';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -173,6 +173,52 @@ export const getCategories = async (): Promise<Category[]> => {
 
   if (error) throw error;
   return data || [];
+};
+
+
+export const saveFlows = async (name: string, description: string[]): Promise<Flow | null> => {
+  const { data, error } = await supabase
+    .from('flows')
+    .upsert([{ category_name: name, extraction_columns: description}])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const deleteFlows = async (name: string, description: string[]): Promise<Flow | null> => {
+  console.log(description)
+  const id = await supabase
+    .from('flows')
+    .select("id")
+    .eq("category_name", name)
+    .contains('extraction_columns', description)
+
+  const { data, error } = await supabase
+    .from('flows').
+    delete().eq("id", id.data?.pop()?.id)
+
+  if (error) throw error;
+  return data;
+};
+
+export const getFlows = async (): Promise<Flow[]> => {
+  const { data, error } = await supabase
+    .from('flows')
+    .select('*');
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const getExistingFlowCategories = async (): Promise<string[]> => {
+  const { data, error } = await supabase
+    .from('flows')
+    .select('*');
+
+  if (error) throw error;
+  return data.map((elem) => {return elem.category_name}) || [];
 };
 
 export const getSettings = async (): Promise<Setting[]> => {
@@ -573,6 +619,7 @@ export const updateEmailAnalysisResults = async (messageId: string, updates: {
   analysis_completed?: boolean;
   forwarded?: boolean;
   forwarding_completed?: boolean;
+  extracted_information?: object
 }) => {
   try {
     console.log('Aktualisiere E-Mail-Analyse-Ergebnisse:', { messageId, updates });
