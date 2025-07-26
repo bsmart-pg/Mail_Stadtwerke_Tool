@@ -1,13 +1,15 @@
 import React, { useState , useEffect} from 'react';
-import { PlusIcon, XMarkIcon, PlayIcon, ChevronDownIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, XMarkIcon, PlayIcon, ChevronDownIcon, TrashIcon, CalendarIcon } from '@heroicons/react/24/outline';
 import { 
   getCategories,
   getFlows,
   deleteFlows,
   saveFlows,
-  getExistingFlowCategories
+  getExistingFlowCategories,
+  getEmailsByCategory
 } from '../services/SupabaseService';
 import { v4 as uuidv4 } from 'uuid';
+import { copyFileSync } from 'fs';
 
 // Mock function to simulate loading flows
 const loadFlows = async () => {
@@ -56,8 +58,14 @@ const Flows: React.FC = () => {
     name: '',
     columns: [] as FlowColumn[]
   });
-
-  
+  const [executingFlow, setExecutingFlow] = useState<string | null>(null);
+  const [executionDates, setExecutionDates] = useState<{
+    startDate: string;
+    endDate: string;
+  }>({
+    startDate: '',
+    endDate: ''
+  });
 
   const addColumn = () => {
     const newColumn: FlowColumn = {
@@ -123,11 +131,58 @@ const Flows: React.FC = () => {
     }
   };
 
-  const executeFlow = (flow: Flow) => {
+  const executeFlow = async(flow: Flow) => {
     console.log('Executing flow:', {
       name: flow.name,
       columns: flow.columns
     });
+
+    setExecutingFlow(flow.id);
+    setExecutionDates({ startDate: '', endDate: '' });
+  };
+
+  const confirmExecution = async(flow: Flow) => {
+    if (executionDates.startDate && executionDates.endDate) {
+      console.log('Executing flow:', {
+        name: flow.name,
+        columns: flow.columns,
+        startDate: executionDates.startDate,
+        endDate: executionDates.endDate
+      });
+
+      const data = await getEmailsByCategory(flow.name, executionDates.startDate, executionDates.endDate)
+      console.log(data)
+      const init_map = new Map();
+      for(let i = 0; i < flow.columns.length; i++){
+          init_map.set(flow.columns[i].name, []);
+      };
+      console.log(init_map)
+      const result = Object.fromEntries(init_map)
+      console.log("result")
+      console.log(result)
+      for(const mail of data){
+        const extracted_information = mail.extracted_information
+        console.log(extracted_information)
+        const relevant_information = extracted_information.find((elem) => elem.name === flow.name)
+        console.log(relevant_information["data"])
+        for (const datakey of Object.keys(relevant_information["data"])){
+          console.log("datakey")
+          console.log(datakey)
+          result[datakey].push(relevant_information["data"][datakey])
+        }
+      } 
+      console.log("result")
+      console.log(result)
+      const csvdata = csvmaker(result)
+      download(csvdata, flow.name);
+      setExecutingFlow(null);
+      setExecutionDates({ startDate: '', endDate: '' });
+    }
+  };
+
+  const cancelExecution = () => {
+    setExecutingFlow(null);
+    setExecutionDates({ startDate: '', endDate: '' });
   };
 
   const cancelAddFlow = () => {
@@ -291,13 +346,64 @@ const Flows: React.FC = () => {
               </div>
             </div>
             
-            <button
-              onClick={() => executeFlow(flow)}
-              className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-secondary hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary"
-            >
-              <PlayIcon className="h-4 w-4 mr-2" />
-              Ausführen
-            </button>
+            {executingFlow === flow.id ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Startdatum
+                    </label>
+                    <input
+                      type="date"
+                      value={executionDates.startDate}
+                      onChange={(e) => setExecutionDates({
+                        ...executionDates,
+                        startDate: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Enddatum
+                    </label>
+                    <input
+                      type="date"
+                      value={executionDates.endDate}
+                      onChange={(e) => setExecutionDates({
+                        ...executionDates,
+                        endDate: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => confirmExecution(flow)}
+                    disabled={!executionDates.startDate || !executionDates.endDate}
+                    className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-secondary hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <PlayIcon className="h-4 w-4 mr-1" />
+                    CSV herunterladen
+                  </button>
+                  <button
+                    onClick={cancelExecution}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => executeFlow(flow)}
+                className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-secondary hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary"
+              >
+                <PlayIcon className="h-4 w-4 mr-2" />
+                CSV herunterladen
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -313,5 +419,47 @@ const Flows: React.FC = () => {
     </div>
   );
 };
+
+
+// Function to download the CSV file
+const download = (data, flowname: string) => {
+    // Create a Blob with the CSV data and type
+    const blob = new Blob([data], { type: 'text/csv' });
+    
+    // Create a URL for the Blob
+    const url = URL.createObjectURL(blob);
+    
+    // Create an anchor tag for downloading
+    const a = document.createElement('a');
+    
+    // Set the URL and download attribute of the anchor tag
+    a.href = url;
+    a.download = flowname + "-" + Date.now() + '.csv';
+    
+    // Trigger the download by clicking the anchor tag
+    a.click();
+}
+
+
+const csvmaker = (data) => {
+  const keys = Object.keys(data); // z.B. ["Zählerstand", "Zählernummer"]
+  
+  // Anzahl der Zeilen anhand des längsten Arrays bestimmen
+  const maxLength = Math.max(...keys.map(key => data[key].length));
+
+  // Header (Spaltenüberschriften)
+  const header = keys.join(",");
+
+  // Rows (Datenzeilen)
+  const rows = [];
+  for (let i = 0; i < maxLength; i++) {
+    const row = keys.map(key => data[key][i].replace(",", ".") || "").join(",");
+    rows.push(row);
+  }
+
+  // CSV als String
+  return [header, ...rows].join("\n");
+}
+
 
 export default Flows;

@@ -508,6 +508,37 @@ export const getStoredData = async () => {
   };
 };
 
+
+// Daten laden
+export const getEmailsByCategory = async (category: string, from_date: string, to_date: string) => {
+  try {
+    const startTimestamp = new Date(Date.parse(from_date)).toISOString()
+    const endTimestamp = new Date(Date.parse(to_date)).toISOString()
+
+    console.log("startTimestamp")
+    console.log(startTimestamp)
+    console.log("endTimestamp")
+    console.log(endTimestamp)
+    const { data, error } = await supabase
+      .from('incoming_emails')
+      .select('*')
+      .eq('category', category)
+      .lte("received_date", to_date)
+      .gte("received_date", from_date)
+
+    if (error) {
+      console.error('Supabase Fehler:', error);
+      throw error;
+    }
+
+    console.log('Geladene E-Mails:', data?.length || 0);
+    return data || [];
+  } catch (error) {
+    console.error('Fehler beim Abrufen der E-Mails mit Status:', error);
+    return [];
+  }
+};
+
 // Lade E-Mails mit Status
 export const getEmailsWithStatus = async () => {
   try {
