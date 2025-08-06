@@ -1,0 +1,29 @@
+version: "3.9"
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: openai-backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./server/.env
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    command: npx ts-node index.ts
+    depends_on:
+      - frontend
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vite-frontend
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
