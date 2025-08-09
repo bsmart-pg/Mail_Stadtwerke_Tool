@@ -23,6 +23,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
+console.log(supabase)
+
 // Prüfen, ob eine E-Mail bereits existiert
 export const checkExistingEmail = async (messageId: string): Promise<IncomingEmail | null> => {
   try {

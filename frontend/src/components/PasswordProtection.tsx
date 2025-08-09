@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+const appPassword = import.meta.env.VITE_APP_PASSWORD;
 
 interface PasswordProtectionProps {
   children: React.ReactNode;
@@ -10,7 +11,7 @@ const PasswordProtection: React.FC<PasswordProtectionProps> = ({ children }) => 
   const [error, setError] = useState('');
 
   // Simple password - you can change this
-  const APP_PASSWORD = 'sws2025';
+  const APP_PASSWORD = appPassword ? appPassword :'password';
 
   useEffect(() => {
     // Check if user is already authenticated in this session
