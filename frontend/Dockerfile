@@ -1,18 +1,15 @@
-# Base image
-FROM node:20-alpine
-
-# Set working directory
+# --- Build stage ---
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-# Install dependencies
 COPY package*.json ./
-RUN npm install
-
-# Copy source code
+RUN npm ci
 COPY . .
+# Optional: set VITE_*-ENV-Variablen hier via ARG/ENV
+RUN npm run build
 
-# Expose Vite port
-EXPOSE 5174
-
-# Start Vite dev server
-CMD ["npm", "run", "dev"]
+# --- Serve stage ---
+FROM nginx:1.27-alpine
+# Statische Dateien in den Docroot
+COPY --from=builder /app/dist /usr/share/nginx/html
+# Nginx für SPA & Caching konfigurieren
+COPY nginx.conf /etc/nginx/conf.d/default.conf
