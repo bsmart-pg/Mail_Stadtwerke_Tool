@@ -8,12 +8,10 @@ import Settings from './pages/Settings';
 import Flows from './pages/Flows';
 import Statistics from './pages/Statistics';
 import PasswordProtection from './components/PasswordProtection';
-import DomainGuard from './components/DomainGuard';
 import './App.css';
 
 function App() {
   return (
-    <DomainGuard>
       <PasswordProtection>
         <Router>
           <Routes>
@@ -28,7 +26,6 @@ function App() {
           </Routes>
         </Router>
       </PasswordProtection>
-    </DomainGuard>
   );
 }
 
