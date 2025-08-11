@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build", 
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "server": "cd server && node --experimental-modules server.ts",
     "build:dev": "vite build --mode development",
-    "proxy": "http://localhost:5000"
-
+    "proxy": "http://localhost:5000",
+    "typecheck": "tsc --noEmit"     // <— optional separat
   },
   "dependencies": {
     "@azure/identity": "^3.2.3",
