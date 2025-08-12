@@ -26,11 +26,15 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: vite-frontend
-    # KEINE Ports hier – läuft intern auf 80
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5174
     depends_on:
       supabase-db:
         condition: service_healthy
-
 
   supabase-db:
     image: supabase/postgres:15.1.0.155
@@ -64,12 +68,10 @@ services:
       PGRST_JWT_SECRET: ${JWT_SECRET_STRING}
       PGRST_DB_SCHEMAS: public,auth
       PGRST_SERVER_PORT: 3000
-      # PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3000
+      PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3000
       PGRST_OPENAPI_MODE: follow-privileges
-      # PGRST_CORS_ALLOWED_ORIGINS: http://localhost:5174
+      PGRST_CORS_ALLOWED_ORIGINS: http://localhost:5174
       PGRST_CORS_MAX_AGE: 86400
-      PGRST_OPENAPI_SERVER_PROXY_URI: https://bsmartdb.swsteinburg.de.tld/rest
-      PGRST_CORS_ALLOWED_ORIGINS: https://bsmartdb.swsteinburg.de.tld
 
   supabase-auth:
     image: supabase/gotrue:v2.178.0
@@ -86,12 +88,10 @@ services:
       GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@supabase-db:5432/postgres
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      # API_EXTERNAL_URL: http://localhost:9999
+      API_EXTERNAL_URL: http://localhost:9999
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      # GOTRUE_SITE_URL: http://localhost:5174
-      API_EXTERNAL_URL: https://bsmartdb.swsteinburg.de.tld/auth
-      GOTRUE_SITE_URL: https://bsmartdb.swsteinburg.de.tld
+      GOTRUE_SITE_URL: http://localhost:5174
 
   supabase-init:
     image: postgres:15
@@ -119,17 +119,12 @@ services:
     image: nginx:1.25-alpine
     container_name: supabase-proxy
     depends_on:
-      - frontend
       - supabase-rest
       - supabase-auth
-      - backend
     ports:
-      - "80:80"
-      - "443:443"
+      - "8000:80"
     volumes:
       - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certs/cert.pem:/etc/ssl/app/cert.pem:ro
-      - ./certs/key.key:/etc/ssl/app/key.key:ro
 
 volumes:
   supabase-data:
