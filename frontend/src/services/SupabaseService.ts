@@ -23,8 +23,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-console.log(supabase)
-
 // Prüfen, ob eine E-Mail bereits existiert
 export const checkExistingEmail = async (messageId: string): Promise<IncomingEmail | null> => {
   try {
@@ -273,43 +271,39 @@ export const saveMultipleCategories = async (categories: { [key: string]: string
 };
 
 // Mehrere Einstellungen auf einmal speichern
-export const saveMultipleSettings = async (settings: { [key: string]: string }): Promise<void> => {
-  try {
-    // Hole zuerst die existierenden Einstellungen
-    const { data: existingSettings, error: fetchError } = await supabase
-      .from('settings')
-      .select('*');
+// Updates existing settings by key, inserts only if a key is new.
+// Returns the freshly saved rows.
+export const saveMultipleSettings = async (settings: { [key: string]: string }) => {
+  // 1) Load existing rows to know which keys already exist
+  const { data: existing, error: fetchError } = await supabase
+    .from('settings')
+    .select('id, setting_key');
+  if (fetchError) throw fetchError;
 
-    if (fetchError) throw fetchError;
+  const existingMap = new Map((existing ?? []).map(s => [s.setting_key, s.id]));
 
-    // Erstelle ein Map der existierenden Einstellungen
-    const existingSettingsMap = new Map(
-      existingSettings?.map(setting => [setting.setting_key, setting]) || []
-    );
+  // 2) Build rows WITHOUT id for new keys; include id only when it exists
+  const rows = Object.entries(settings).map(([key, value]) => {
+    const row: any = {
+      setting_key: key,
+      setting_value: value,
+      updated_at: new Date().toISOString(),
+    };
+    const existingId = existingMap.get(key);
+    if (existingId) row.id = existingId; // include id only if it exists
+    return row;
+  });
 
-    // Bereite die Einstellungen für das Upsert vor
-    const settingsArray = Object.entries(settings).map(([key, value]) => {
-      const existingSetting = existingSettingsMap.get(key);
-      return {
-        id: existingSetting?.id || undefined, // Verwende die existierende ID wenn vorhanden
-        setting_key: key,
-        setting_value: value,
-        updated_at: new Date().toISOString()
-      };
-    });
+  // 3) Upsert on setting_key (updates existing, inserts new)
+  const { data, error } = await supabase
+    .from('settings')
+    .upsert(rows, { onConflict: 'setting_key' })
+    .select(); // return the updated rows so the UI can refresh
+  if (error) throw error;
 
-    const { error } = await supabase
-      .from('settings')
-      .upsert(settingsArray, {
-        onConflict: 'setting_key'
-      });
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('Fehler beim Speichern der Einstellungen:', error);
-    throw error;
-  }
+  return data ?? [];
 };
+
 
 // Anfragen-Status aktualisieren
 export const updateForwardingStatus = async (emailId: string, status: string): Promise<RequestStatus | null> => {
@@ -704,6 +698,23 @@ export const updateEmailCategories = async (id: string, updates: {
     throw error;
   }
 };
+
+export async function updateEmailCustomerNumbers(
+  id: string,
+  payload: { all_customer_numbers: string[]; customer_number?: string | null }
+) {
+  // adjust table name if yours differs
+  const { data, error } = await supabase
+    .from('incoming_emails')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 
 export default {
   getEmailByMessageId,

@@ -3,11 +3,50 @@ import axios from 'axios';
 
 const GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0';
 
+const STORAGE_KEYS = {
+  SYNC_START_UTC: 'graph.syncStartUtc',
+  DELTA_LINK: 'graph.deltaLink',
+};
+
+
 /**
  * Service für die Microsoft Graph API
  */
 export const GraphService = {
-  deltaLink: null,
+  deltaLink: null as string | null,
+  syncWindowStartUtc: null as string | null,
+
+  ensureSyncStart() {
+    if (!GraphService.syncWindowStartUtc) {
+      // try restore from storage first
+      const stored = typeof window !== 'undefined'
+        ? window.localStorage.getItem(STORAGE_KEYS.SYNC_START_UTC)
+        : null;
+
+      if (stored) {
+        GraphService.syncWindowStartUtc = stored;
+      } else {
+        const d = new Date();
+        d.setMilliseconds(0);
+        GraphService.syncWindowStartUtc = d.toISOString();
+        try {
+          window.localStorage.setItem(STORAGE_KEYS.SYNC_START_UTC, GraphService.syncWindowStartUtc);
+        } catch {}
+      }
+      console.log('Sync window start (UTC):', GraphService.syncWindowStartUtc);
+    }
+  },
+
+  
+  resetDelta() {
+    GraphService.deltaLink = null;
+    GraphService.syncWindowStartUtc = null;
+    try {
+      window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
+      window.localStorage.removeItem(STORAGE_KEYS.SYNC_START_UTC);
+    } catch {}
+  },
+
   /**
    * Erstellt einen HTTP-Client mit dem aktuellen Access Token
    */
@@ -32,26 +71,66 @@ export const GraphService = {
    */
   getInboxMails: async (maxResults = 50) => {
     try {
+      GraphService.ensureSyncStart();
       const client = await GraphService.getAuthenticatedClient();
-      let response
-      if (GraphService.deltaLink) {
-        response = await client.get(GraphService.deltaLink);
-        console.log("Query emails at: " + GraphService.deltaLink)
+
+      // restore deltaLink once if memory is empty
+      if (!GraphService.deltaLink && typeof window !== 'undefined') {
+        GraphService.deltaLink = window.localStorage.getItem(STORAGE_KEYS.DELTA_LINK);
       }
-      else {
-        response = await client.get(`/me/mailFolders/inbox/messages/delta?$top=${maxResults}&$orderby=receivedDateTime desc`);
-        console.log("Query emails at default")
+
+      const syncStart = new Date(GraphService.syncWindowStartUtc!);
+      const keepIfNewer = (m: any) => m?.receivedDateTime && new Date(m.receivedDateTime) >= syncStart;
+
+      let items: any[] = [];
+      let url: string | null = GraphService.deltaLink;
+
+      while (true) {
+        let res;
+        if (url) {
+          res = await client.get(url);
+        } else {
+          const filter = encodeURIComponent(`receivedDateTime ge ${GraphService.syncWindowStartUtc}`);
+          const firstUrl = `/me/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
+          console.log('Initial delta GET:', firstUrl);
+          res = await client.get(firstUrl);
+        }
+
+        const data = res.data ?? {};
+        const batch = Array.isArray(data.value) ? data.value : [];
+        const filtered = batch.filter(keepIfNewer);
+        items = items.concat(filtered);
+
+        if (data['@odata.nextLink']) {
+          url = data['@odata.nextLink'];
+          continue;
+        }
+
+        GraphService.deltaLink = data['@odata.deltaLink'] ?? null;
+        try {
+          if (GraphService.deltaLink) {
+            window.localStorage.setItem(STORAGE_KEYS.DELTA_LINK, GraphService.deltaLink);
+          } else {
+            window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
+          }
+        } catch {}
+        break;
       }
-      console.log(response.data["@odata.deltaLink"])
-      console.log(response)
-      GraphService.deltaLink = response.data["@odata.deltaLink"]
-      console.log(response.data.value)
-      return response.data.value;
-    } catch (error) {
-      console.error('Fehler beim Abrufen der E-Mails:', error);
-      throw error;
+
+      return items;
+    } catch (err: any) {
+      if (err?.response?.status === 410) {
+        console.warn('Delta token expired (410). Resetting and retrying once.');
+        GraphService.deltaLink = null;
+        try { window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK); } catch {}
+        return await GraphService.getInboxMails(maxResults);
+      }
+      console.error('Fehler beim Abrufen der E-Mails:', err);
+      throw err;
     }
   },
+
+
   
   /**
    * Ruft eine bestimmte E-Mail anhand ihrer ID ab

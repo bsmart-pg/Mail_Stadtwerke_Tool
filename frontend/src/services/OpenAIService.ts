@@ -86,7 +86,7 @@ class OpenAIService {
       `
       prompt += `ANALYSE-ANWEISUNGEN:
         1. Lies den GESAMTEN Text sorgfältig durch
-        2. Suche nach ALLEN Kundennummern (meist 6-12 stellige Zahlen)
+        2. Suche nach ALLEN Kundennummern mit GENAU 10 alphanumerischen Zeichen (Buchstaben A–Z und Ziffern 0–9; keine Leerzeichen oder Trennzeichen). Beispiel: 123456789A ist gültig. Gib nichts aus, was nicht genau 10 alphanumerische Zeichen hat.
         3. Prüfe JEDEN Satz auf mögliche Kategorien
         4. Eine E-Mail kann MEHRERE Kategorien gleichzeitig betreffen
         5. Vergiss nicht, auch Nebensätze und Anhänge-Erwähnungen zu prüfen
@@ -226,7 +226,7 @@ class OpenAIService {
       prompt += `
       
       WICHTIG: 
-      - Finde ALLE Kundennummern im Bild (meist 6-12 stellige Zahlen)
+      - Suche nach ALLEN Kundennummern mit GENAU 10 alphanumerischen Zeichen (Buchstaben A–Z und Ziffern 0–9; keine Leerzeichen oder Trennzeichen). Beispiel: 123456789A ist gültig. Gib nichts aus, was nicht genau 10 alphanumerische Zeichen hat.
       - Das Bild kann mehrere Kategorien gleichzeitig betreffen
       - Prüfe alle Texte und Zahlen im Bild sorgfältig
 
@@ -359,7 +359,7 @@ class OpenAIService {
       prompt += `
       
       WICHTIG: 
-      - Finde ALLE Kundennummern im Bild (meist 6-12 stellige Zahlen)
+      - Suche nach ALLEN Kundennummern mit GENAU 10 alphanumerischen Zeichen (Buchstaben A–Z und Ziffern 0–9; keine Leerzeichen oder Trennzeichen). Beispiel: 123456789A ist gültig. Gib nichts aus, was nicht genau 10 alphanumerische Zeichen hat.
       - Das Bild kann mehrere Kategorien gleichzeitig betreffen
       - Prüfe alle Texte und Zahlen im Bild sorgfältig
 
@@ -534,22 +534,19 @@ class OpenAIService {
         
       // Bereinige Kundennummern (entferne Duplikate und leere Werte)
 
+      // ⬇️ Minimal hard filter: allow only GENAU 10 alphanumerische Zeichen
+      const isAlnum10 = (s: string) => /^[A-Za-z0-9]{10}$/.test(s);
+
+      // normalize -> strip non-alphanumerics -> uppercase, then filter
+      result.allCustomerNumbers = (Array.isArray(result.allCustomerNumbers) ? result.allCustomerNumbers : [])
+        .map((x: any) => x?.toString().trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase())
+        .filter((x: string) => isAlnum10(x));
+
+      // normalize + validate single; if invalid, take first from array
       if (result.customerNumber) {
-        result.customerNumber = result.customerNumber.toString().trim()
+        const norm = result.customerNumber.toString().trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        result.customerNumber = isAlnum10(norm) ? norm : null;
       }
-      if (result.customerNumber === "null") {
-        result.customerNumber = null
-      }
-      if (Array.isArray(result.allCustomerNumbers)) {
-        result.allCustomerNumbers = [...new Set(
-          result.allCustomerNumbers
-            .filter((num: any) => num && num.toString().trim())
-            .map((num: any) => num.toString().trim())
-        )];
-      } else {
-        result.allCustomerNumbers = result.customerNumber ? [result.customerNumber] : [];
-      }
-      // Stelle sicher, dass customerNumber gesetzt ist, wenn Kundennummern vorhanden sind
       if (!result.customerNumber && result.allCustomerNumbers.length > 0) {
         result.customerNumber = result.allCustomerNumbers[0];
       }

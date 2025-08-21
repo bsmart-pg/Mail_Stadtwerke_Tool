@@ -92,6 +92,8 @@ services:
       # GOTRUE_SITE_URL: http://localhost:5174
       API_EXTERNAL_URL: https://bsmartdb.swsteinburg.de.tld/auth
       GOTRUE_SITE_URL: https://bsmartdb.swsteinburg.de.tld
+    volumes:
+      - ./auth-migrations:/etc/gotrue/migrations:ro
 
   supabase-init:
     image: postgres:15

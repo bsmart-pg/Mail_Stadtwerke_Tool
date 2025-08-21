@@ -505,6 +505,15 @@ class AnalysisService {
 
     allCategories = allCategories.filter(a => a !== null)
     allCustomerNumbers = allCustomerNumbers.filter(a => a !== null)
+
+    // ⬇️ add this block here
+    const norm = (s: any) => String(s ?? '').normalize('NFKC').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const isAlnum10 = (s: string) => /^[A-Z0-9]{10}$/.test(s);
+    allCustomerNumbers = (allCustomerNumbers || []).map(norm).filter(isAlnum10);
+    const cnNorm = norm(customerNumber);
+    customerNumber = isAlnum10(cnNorm) ? cnNorm : (allCustomerNumbers[0] ?? null);
+
+    // and then the return
     return {
       customerNumber,
       category,
@@ -512,6 +521,7 @@ class AnalysisService {
       allCategories, 
       allExtractedInformation
     };
+
   }
 
   private async processForwarding(

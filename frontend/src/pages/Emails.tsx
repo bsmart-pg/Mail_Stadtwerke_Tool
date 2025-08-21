@@ -26,7 +26,8 @@ import {
   updateEmailCategories,
   deleteEmail,
   deleteForwardingStatus,
-  deleteRequestStatus
+  deleteRequestStatus,
+  updateEmailCustomerNumbers
 } from '../services/SupabaseService';
 import { IncomingEmail, EMAIL_STATUS, EmailStatus } from '../types/supabase';
 import { v4 as uuidv4 } from 'uuid';
@@ -104,6 +105,10 @@ const Emails: React.FC = () => {
 
   const [openDropdownEmailId, setOpenDropdownEmailId] = useState<string | null>(null);
 
+  const [openNumberEditorEmailId, setOpenNumberEditorEmailId] = useState<string | null>(null);
+  const [newCustomerNumber, setNewCustomerNumber] = useState('');
+
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (!(event.target as HTMLElement).closest(".dropdown-wrapper")) {
@@ -124,35 +129,150 @@ const Emails: React.FC = () => {
     await loadEmails()
   };
 
-  const handleRemove = async(email: DisplayEmail, index: number) => {
-    console.log("press X " + String(email.all_categories[index]))
+  const handleAddCategory = async (email: DisplayEmail, cat: string) => {
+    try {
+      // build next list
+      const current = Array.isArray(email.all_categories) ? [...email.all_categories] : [];
+      let nextCats: string[];
 
-    const new_cats = email.all_categories.filter((_, i) => i !== index)
-    console.log(new_cats)
-    if (new_cats.length === 0) {
-      updateEmailCategories(email.id, {
-        all_categories: ["Sonstiges"]
-      })
-    } else {
-      updateEmailCategories(email.id, {
-        all_categories: new_cats
-      })
+      if (current.length === 1 && current[0] === "Sonstiges") {
+        // replace "Sonstiges" with the new category
+        nextCats = [cat];
+      } else if (!current.includes(cat)) {
+        nextCats = [...current, cat];
+      } else {
+        nextCats = current; // already there; still make it main
+      }
+
+      // persist categories + make new one the main category
+      await updateEmailCategories(email.id, {
+        all_categories: nextCats,
+        category: cat,
+      });
+
+      // (optional) mark as categorized if it was uncategorized
+      if (email.status === EMAIL_STATUS.UNKATEGORISIERT) {
+        await handleStatusUpdate(email.id, EMAIL_STATUS.KATEGORISIERT);
+      }
+
+      // optimistic UI update
+      setEmails(prev =>
+        prev.map(e =>
+          e.id === email.id ? { ...e, all_categories: nextCats, category: cat } : e
+        )
+      );
+
+      setOpenDropdownEmailId(null);
+      await loadEmails();
+    } catch (err) {
+      console.error("Fehler beim Hinzufügen der Kategorie:", err);
     }
-    
-    await loadEmails()
   };
 
-  const handleAddCategory = async(email: DisplayEmail, cat: string) => {
-      // Update your state or call your backend here
-      console.log(`Try adding ${cat} to email ${email.id}`);
+  const handleRemove = async (email: DisplayEmail, index: number) => {
+    try {
+      const current = Array.isArray(email.all_categories) ? [...email.all_categories] : [];
+      const removed = current[index];
+      const next = current.filter((_, i) => i !== index);
 
-      email.all_categories.push(cat)
-      console.log(email.all_categories)
-      updateEmailCategories(email.id, {
-        all_categories: email.all_categories
-      })
-      await loadEmails()
+      // decide next main category
+      let nextMain: string | null;
 
+      if (next.length === 0) {
+        nextMain = "Sonstiges";
+      } else if (email.category === removed) {
+        // if we removed the main, promote the first remaining
+        nextMain = next[0];
+      } else {
+        nextMain = email.category || next[0];
+      }
+
+      // if empty, ensure we store Sonstiges as the only one
+      const nextCats = next.length === 0 ? ["Sonstiges"] : next;
+
+      await updateEmailCategories(email.id, {
+        all_categories: nextCats,
+        category: nextMain,
+      });
+
+      // optimistic UI
+      setEmails(prev =>
+        prev.map(e =>
+          e.id === email.id ? { ...e, all_categories: nextCats, category: nextMain } : e
+        )
+      );
+
+      await loadEmails();
+    } catch (err) {
+      console.error("Fehler beim Entfernen der Kategorie:", err);
+    }
+  };
+
+  const handleAddCustomerNumber = async (email: DisplayEmail, raw: string) => {
+    const num = (raw || '').trim();
+    if (!num) return;
+
+    const current = Array.isArray(email.all_customer_numbers) ? [...email.all_customer_numbers] : [];
+    if (current.includes(num)) {
+      setOpenNumberEditorEmailId(null);
+      setNewCustomerNumber('');
+      return;
+    }
+
+    const wasEmpty = current.length === 0;
+    current.push(num);
+
+    // persist both the array and primary field
+    await updateEmailCustomerNumbers(email.id, {
+      all_customer_numbers: current,
+      customer_number: current[0] ?? null,
+    });
+
+    // clear "Fehlt" status if this was the first one
+    if (wasEmpty && email.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
+      await handleStatusUpdate(
+        email.id,
+        email.category ? EMAIL_STATUS.KATEGORISIERT : EMAIL_STATUS.UNKATEGORISIERT
+      );
+    }
+
+    // optimistic UI
+    setEmails(prev =>
+      prev.map(e =>
+        e.id === email.id
+          ? { ...e, all_customer_numbers: current, customer_number: current[0] ?? null }
+          : e
+      )
+    );
+
+    setOpenNumberEditorEmailId(null);
+    setNewCustomerNumber('');
+    await loadEmails();
+  };
+
+  const handleRemoveCustomerNumber = async (email: DisplayEmail, index: number) => {
+    const current = Array.isArray(email.all_customer_numbers) ? [...email.all_customer_numbers] : [];
+    current.splice(index, 1);
+
+    await updateEmailCustomerNumbers(email.id, {
+      all_customer_numbers: current,
+      customer_number: current[0] ?? null,
+    });
+
+    if (current.length === 0 && email.status !== EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
+      await handleStatusUpdate(email.id, EMAIL_STATUS.FEHLENDE_KUNDENNUMMER);
+    }
+
+    // optimistic UI
+    setEmails(prev =>
+      prev.map(e =>
+        e.id === email.id
+          ? { ...e, all_customer_numbers: current, customer_number: current[0] ?? null }
+          : e
+      )
+    );
+
+    await loadEmails();
   };
 
 
@@ -242,7 +362,9 @@ const Emails: React.FC = () => {
           hasAttachments: email.hasAttachments || false,
           attachments: email.attachments || [],
           customer_number: email.customer_number ?? null,
-          category: email.category ?? null
+          category: email.category ?? null,
+          all_customer_numbers: Array.isArray(email.all_customer_numbers) ? email.all_customer_numbers : [],
+          all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
         }));
 
         // Sortiere nach Empfangsdatum
@@ -757,7 +879,9 @@ const Emails: React.FC = () => {
               minute: '2-digit'
             }),
             customer_number: email.customer_number ?? null,
-            category: email.category ?? null
+            category: email.category ?? null,
+            all_customer_numbers: Array.isArray(email.all_customer_numbers) ? email.all_customer_numbers : [],
+            all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
           }));
 
           // Setze die gesendeten Antworten basierend auf dem Status
@@ -1060,34 +1184,122 @@ const Emails: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500">{email.date}</div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {email.customer_number ? (
+                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            {email.all_customer_numbers && email.all_customer_numbers.length > 0 ? (
+                              // ----- has numbers: show chips + add popover
                               <div className="space-y-1">
-                                {/* Zeige alle Kundennummern an */}
-                                {email.all_customer_numbers && email.all_customer_numbers.length > 0 ? (
-                                  email.all_customer_numbers.map((customerNumber, index) => (
-                                    <div key={index} className="text-sm text-gray-900">
-                                      {customerNumber}
+                                <div className="flex flex-wrap">
+                                  {email.all_customer_numbers.map((num, index) => (
+                                    <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-1 mb-1">
+                                      {num}
+                                      <button
+                                        onClick={() => {
+                                          if (window.confirm(`Kundennummer "${num}" wirklich entfernen?`)) {
+                                            handleRemoveCustomerNumber(email, index);
+                                          }
+                                        }}
+                                        className="ml-1 text-blue-700 hover:text-red-600"
+                                      >
+                                        <XMarkIcon className="h-3 w-3" />
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+
+                                {/* add popover (same as before) */}
+                                <div className="relative inline-block">
+                                  {openNumberEditorEmailId === email.id ? (
+                                    <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
+                                      <input
+                                        autoFocus
+                                        type="text"
+                                        placeholder="Neue Kundennummer"
+                                        value={newCustomerNumber}
+                                        onChange={(e) => setNewCustomerNumber(e.target.value)}
+                                        className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') handleAddCustomerNumber(email, newCustomerNumber);
+                                          if (e.key === 'Escape') { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }
+                                        }}
+                                      />
+                                      <div className="flex justify-end space-x-2">
+                                        <button className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                          onClick={() => { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }}>
+                                          Abbrechen
+                                        </button>
+                                        <button className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                          onClick={() => handleAddCustomerNumber(email, newCustomerNumber)}>
+                                          Speichern
+                                        </button>
+                                      </div>
                                     </div>
-                                  ))
+                                  ) : (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setOpenNumberEditorEmailId(email.id); setNewCustomerNumber(''); }}
+                                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                                      title="Kundennummer hinzufügen"
+                                    >
+                                      <PlusIcon className="mr-1 h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              // ----- empty states (Fehlt / Angefragt / Wird analysiert...) WITH add popover
+                              <div className="flex items-center space-x-2 relative">
+                                {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT ? (
+                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                                    Angefragt
+                                  </span>
+                                ) : email.analysis_completed === false ? (
+                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                    Wird analysiert...
+                                  </span>
                                 ) : (
-                                  <div className="text-sm text-gray-900">{email.customer_number}</div>
+                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                    Fehlt
+                                  </span>
+                                )}
+
+                                {/* same add button + popover even when empty */}
+                                {openNumberEditorEmailId === email.id ? (
+                                  <div className="absolute z-10 top-7 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
+                                    <input
+                                      autoFocus
+                                      type="text"
+                                      placeholder="Neue Kundennummer"
+                                      value={newCustomerNumber}
+                                      onChange={(e) => setNewCustomerNumber(e.target.value)}
+                                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleAddCustomerNumber(email, newCustomerNumber);
+                                        if (e.key === 'Escape') { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }
+                                      }}
+                                    />
+                                    <div className="flex justify-end space-x-2">
+                                      <button className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                        onClick={() => { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }}>
+                                        Abbrechen
+                                      </button>
+                                      <button className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                        onClick={() => handleAddCustomerNumber(email, newCustomerNumber)}>
+                                        Speichern
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setOpenNumberEditorEmailId(email.id); setNewCustomerNumber(''); }}
+                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                                    title="Kundennummer hinzufügen"
+                                  >
+                                    <PlusIcon className="mr-1 h-3 w-3" />
+                                  </button>
                                 )}
                               </div>
-                            ) : email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT ? (
-                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                                Angefragt
-                              </span>
-                            ) : email.analysis_completed === false ? (
-                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                                Wird analysiert...
-                              </span>
-                            ) : (
-                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
-                                Fehlt
-                              </span>
                             )}
                           </td>
+
                           <td className="px-6 py-4 whitespace-nowrap">
                             {email.category ? (
                               <div className="space-y-1">
