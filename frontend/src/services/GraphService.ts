@@ -2,6 +2,7 @@ import MsalService from './MsalService';
 import axios from 'axios';
 
 const GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0';
+const inboxEmailAdress = import.meta.env.VITE_INBOX_EMAIL_ADRESS || '';
 
 const STORAGE_KEYS = {
   SYNC_START_UTC: 'graph.syncStartUtc',
@@ -91,7 +92,7 @@ export const GraphService = {
           res = await client.get(url);
         } else {
           const filter = encodeURIComponent(`receivedDateTime ge ${GraphService.syncWindowStartUtc}`);
-          const firstUrl = `/me/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
+          const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
           console.log('Initial delta GET:', firstUrl);
           res = await client.get(firstUrl);
         }
@@ -140,7 +141,7 @@ export const GraphService = {
       const client = await GraphService.getAuthenticatedClient();
       // URL-kodiere die E-Mail-ID
       const encodedEmailId = encodeURIComponent(emailId);
-      const response = await client.get(`/me/messages/${encodedEmailId}`);
+      const response = await client.get(`/users/${inboxEmailAdress}/messages/${encodedEmailId}`);
       return response.data;
     } catch (error) {
       console.error(`Fehler beim Abrufen der E-Mail mit ID ${emailId}:`, error);
@@ -157,7 +158,7 @@ export const GraphService = {
       // URL-kodiere die E-Mail-ID
       const encodedEmailId = encodeURIComponent(emailId);
       // $select Parameter hinzufügen, um den vollständigen HTML-Body zu erhalten und $expand für Anhänge
-      const response = await client.get(`/me/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`);
+      const response = await client.get(`/users/${inboxEmailAdress}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`);
       
       // Markiere Inline-Anhänge und bereinige Content-IDs
       if (response.data.attachments) {
@@ -265,7 +266,7 @@ export const GraphService = {
       
       // E-Mail senden
       console.log('Sende E-Mail an:', toRecipients);
-      const response = await client.post('/me/sendMail', mailBody);
+      const response = await client.post('/users/${inboxEmailAdress}/sendMail', mailBody);
       console.log('E-Mail erfolgreich gesendet');
       
       return response.data;
@@ -299,7 +300,7 @@ export const GraphService = {
       const encodedAttachmentId = encodeURIComponent(attachmentId);
       
       const response = await fetch(
-        `https://graph.microsoft.com/v1.0/me/messages/${encodedMessageId}/attachments/${encodedAttachmentId}/$value`,
+        `https://graph.microsoft.com/v1.0/users/${inboxEmailAdress}/messages/${encodedMessageId}/attachments/${encodedAttachmentId}/$value`,
         {
           headers: {
             Authorization: `Bearer ${token}`
