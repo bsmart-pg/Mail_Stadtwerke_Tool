@@ -18,7 +18,8 @@ class OpenAIService {
     this.openai = new OpenAI({
       apiKey: process.env.AZURE_OPENAI_API_KEY,
       baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
-      defaultQuery: { "api-version": "2024-02-15-preview" },
+      //defaultQuery: { "api-version": "2024-02-15-preview" }, // locally
+      defaultQuery: { "api-version": "2025-01-01-preview" },
       defaultHeaders: {
         "api-key": process.env.AZURE_OPENAI_API_KEY
       },

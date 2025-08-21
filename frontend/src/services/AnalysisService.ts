@@ -4,6 +4,13 @@ import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
 
 
+const baseURL = import.meta.env.VITE_API_BASE;
+
+if (!baseURL) {
+  throw new Error('backend URL müssen in den Umgebungsvariablen definiert sein.');
+}
+
+
 interface ImageAnalysisResult {
   customerNumber?: string | null;
   category?: string | null;
@@ -168,7 +175,7 @@ class AnalysisService {
 
       const email_subject = email.subject || ''
       const email_body = email.body?.content || ''
-      const response = await fetch('http://localhost:3001/api/analyze-text', {
+      const response = await fetch(baseURL +'/api/analyze-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -255,7 +262,7 @@ class AnalysisService {
             
             // Analysiere das Bild
             // const imageResult = await openAIService.analyzeImage(base64);
-            const response = await fetch('http://localhost:3001/api/analyze-image', {
+            const response = await fetch(baseURL +'/api/analyze-image', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -302,7 +309,7 @@ class AnalysisService {
             
             // Analysiere das PDF
             // const imageResult = await openAIService.analyzePdf(base64);
-            const response = await fetch('http://localhost:3001/api/analyze-pdf', {
+            const response = await fetch(baseURL +'/api/analyze-pdf', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

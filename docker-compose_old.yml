@@ -21,15 +21,15 @@ services:
       HOST: 0.0.0.0
       PORT: 3001
 
-#  frontend:
-#    build:
-#      context: ./frontend
-#      dockerfile: Dockerfile
-#    container_name: vite-frontend
-#    # KEINE Ports hier – läuft intern auf 80
-#    depends_on:
-#      supabase-db:
-#        condition: service_healthy
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vite-frontend
+    # KEINE Ports hier – läuft intern auf 80
+    depends_on:
+      supabase-db:
+        condition: service_healthy
 
 
   supabase-db:
@@ -68,8 +68,8 @@ services:
       PGRST_OPENAPI_MODE: follow-privileges
       # PGRST_CORS_ALLOWED_ORIGINS: http://localhost:5174
       PGRST_CORS_MAX_AGE: 86400
-      PGRST_OPENAPI_SERVER_PROXY_URI: https://bsmartdb.swsteinburg.de/rest
-      PGRST_CORS_ALLOWED_ORIGINS: https://bsmartdb.swsteinburg.de
+      PGRST_OPENAPI_SERVER_PROXY_URI: https://bsmartdb.swsteinburg.de.tld/rest
+      PGRST_CORS_ALLOWED_ORIGINS: https://bsmartdb.swsteinburg.de.tld
 
   supabase-auth:
     image: supabase/gotrue:v2.178.0
@@ -83,16 +83,17 @@ services:
     environment:
       GOTRUE_JWT_SECRET: ${JWT_SECRET_STRING}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@supabase-db:5432/postgres?search_path=auth,public
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@supabase-db:5432/postgres
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
       # API_EXTERNAL_URL: http://localhost:9999
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       # GOTRUE_SITE_URL: http://localhost:5174
-      API_EXTERNAL_URL: https://bsmartdb.swsteinburg.de/auth
-      GOTRUE_SITE_URL: https://bsmartdb.swsteinburg.de
-      GOTRUE_DB_NAMESPACE: auth
+      API_EXTERNAL_URL: https://bsmartdb.swsteinburg.de.tld/auth
+      GOTRUE_SITE_URL: https://bsmartdb.swsteinburg.de.tld
+    volumes:
+      - ./auth-migrations:/etc/gotrue/migrations:ro
 
   supabase-init:
     image: postgres:15
@@ -120,7 +121,7 @@ services:
     image: nginx:1.25-alpine
     container_name: supabase-proxy
     depends_on:
-#      - frontend
+      - frontend
       - supabase-rest
       - supabase-auth
       - backend
@@ -131,9 +132,6 @@ services:
       - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./certs/cert.pem:/etc/ssl/app/cert.pem:ro
       - ./certs/key.key:/etc/ssl/app/key.key:ro
-      - ./frontend/dist:/usr/share/nginx/html:ro
 
 volumes:
   supabase-data:
-
-

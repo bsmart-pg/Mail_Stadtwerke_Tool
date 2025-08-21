@@ -18,7 +18,8 @@ class OpenAIService {
     this.openai = new OpenAI({
       apiKey: import.meta.env.VITE_AZURE_OPENAI_API_KEY,
       baseURL: `${import.meta.env.VITE_AZURE_OPENAI_ENDPOINT}/openai/deployments/${import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME}`,
-      defaultQuery: { "api-version": "2024-02-15-preview" },
+      //defaultQuery: { "api-version": "2024-02-15-preview" }, // locally
+      defaultQuery: { "api-version": "2025-01-01-preview" },
       defaultHeaders: {
         "api-key": import.meta.env.VITE_AZURE_OPENAI_API_KEY
       },

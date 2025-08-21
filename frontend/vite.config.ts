@@ -8,6 +8,7 @@ export default defineConfig({
     port: 5174,
     host: true,
     open: false,
+    https: false,
   },
   build: {
     // baut ohne Downleveling – TLA bleibt erhalten
@@ -19,3 +20,4 @@ export default defineConfig({
     supported: { 'top-level-await': true },
   },
 })
+
