@@ -31,7 +31,6 @@ import {
 } from '../services/SupabaseService';
 import { IncomingEmail, EMAIL_STATUS, EmailStatus } from '../types/supabase';
 import { v4 as uuidv4 } from 'uuid';
-import { openAIService } from '../services/OpenAIService';
 import { analysisService } from '../services/AnalysisService';
 
 // Lokale Email-Interface für die Anzeige

@@ -9,8 +9,13 @@ import {
   ArrowUturnLeftIcon
 } from '@heroicons/react/24/outline';
 import GraphService from '../services/GraphService';
-import MsalService from '../services/MsalService';
-import { openAIService } from '../services/OpenAIService';
+
+const baseURL = import.meta.env.VITE_API_BASE;
+
+if (!baseURL) {
+  throw new Error('backend URL müssen in den Umgebungsvariablen definiert sein.');
+}
+
 
 interface EmailDetailProps {
   emailId: string;
@@ -119,7 +124,16 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, onClose, 
 
                 // Führe die GPT-Analyse durch
                 console.log('Starte GPT-Analyse für Bild:', attachment.name);
-                const analysis = await openAIService.analyzeImage(base64Data);
+
+                const response = await fetch(baseURL +'/api/analyze-image', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    base64Image: base64Data,
+                  })
+                });
+
+                const analysis = await response.json();
                 console.log('GPT-Analyse erfolgreich:', analysis);
 
                 if (onAnalysisComplete && analysis) {

@@ -1,4 +1,3 @@
-import { openAIService } from './OpenAIService';
 import { updateEmailAnalysisResults, getEmailById } from './SupabaseService';
 import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
