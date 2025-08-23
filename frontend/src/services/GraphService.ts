@@ -266,7 +266,7 @@ export const GraphService = {
       
       // E-Mail senden
       console.log('Sende E-Mail an:', toRecipients);
-      const response = await client.post('/users/${inboxEmailAdress}/sendMail', mailBody);
+      const response = await client.post(`/users/${inboxEmailAdress}/sendMail`, mailBody);
       console.log('E-Mail erfolgreich gesendet');
       
       return response.data;
