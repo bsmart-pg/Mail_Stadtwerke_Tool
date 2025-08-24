@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: openai-backend-dev
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./server/.env
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    command: npx ts-node index.ts
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      # If your backend calls Supabase:
+      SUPABASE_REST_URL: http://localhost:3000   # or http://supabase-rest:3000 if server talks over Docker network only
+      SUPABASE_AUTH_URL: http://localhost:9999
+      SUPABASE_DB_URL: postgres://postgres:postgres@supabase-db:5432/postgres
+      JWT_SECRET_STRING: ${JWT_SECRET_STRING}
+
+  supabase-db:
+    image: supabase/postgres:15.1.0.155
+    container_name: supabase-db-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h localhost"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  supabase-rest:
+    image: postgrest/postgrest:latest
+    container_name: supabase-rest-dev
+    restart: unless-stopped
+    # ports:
+    #   - "3000:3000"
+    expose:
+      - "3000"
+    depends_on:
+      - supabase-db
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@supabase-db:5432/postgres
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET_STRING}
+      PGRST_DB_SCHEMAS: public,auth
+      PGRST_SERVER_PORT: 3000
+
+      # Dev CORS + OpenAPI proxy url for localhost
+      PGRST_OPENAPI_MODE: follow-privileges
+      PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3000
+      PGRST_CORS_ALLOWED_ORIGINS: http://localhost:5174,http://127.0.0.1:5174
+      PGRST_CORS_MAX_AGE: 86400
+
+  supabase-auth:
+    image: supabase/gotrue:v2.178.0
+    container_name: supabase-auth-dev
+    restart: unless-stopped
+    ports:
+      - "9999:9999"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      GOTRUE_JWT_SECRET: ${JWT_SECRET_STRING}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@supabase-db:5432/postgres?search_path=auth,public
+
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+
+      # IMPORTANT: dev external URLs & site origin must be localhost, not your https domain
+      API_EXTERNAL_URL: http://localhost:9999
+      GOTRUE_SITE_URL: http://localhost:5174
+
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_DB_NAMESPACE: auth
+
+  supabase-init:
+    image: postgres:15
+    container_name: supabase-init-dev
+    depends_on:
+      - supabase-db
+    volumes:
+      - ./supabase-init:/docker-entrypoint-initdb.d
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for DB...';
+        until pg_isready -h supabase-db -p 5432; do sleep 1; done;
+        echo 'Running schema.sql...';
+        psql -h supabase-db -U postgres -d postgres -f /docker-entrypoint-initdb.d/schema.sql;
+        if [ -f /docker-entrypoint-initdb.d/data.sql ]; then
+          echo 'Running data.sql...';
+          psql -h supabase-db -U postgres -d postgres -f /docker-entrypoint-initdb.d/data.sql;
+        fi
+        echo 'Supabase init complete.';
+      "
+    environment:
+      PGPASSWORD: postgres
+    
+  supabase-gateway:
+    image: nginx:1.25-alpine
+    container_name: supabase-gateway-dev
+    depends_on:
+      - supabase-rest
+      - supabase-auth
+    ports:
+      - "3000:3000"                          # the host now talks to the gateway
+    volumes:
+      - ./reverse-proxy/nginx.supabase.gateway.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  supabase-data:

@@ -26,7 +26,7 @@ const Sidebar = () => {
     { name: 'Dashboard', path: '/', icon: HomeIcon },
     { name: 'E-Mails', path: '/emails', icon: EnvelopeIcon },
     { name: 'Kategorien', path: '/categories', icon: TagIcon },
-    { name: 'Statistiken', path: '/statistics', icon: ChartBarIcon },
+    // { name: 'Statistiken', path: '/statistics', icon: ChartBarIcon },
     { name: 'Einstellungen', path: '/settings', icon: Cog6ToothIcon },
     { name: 'Flows', path: '/flows', icon: ArrowUpOnSquareIcon },
   ];

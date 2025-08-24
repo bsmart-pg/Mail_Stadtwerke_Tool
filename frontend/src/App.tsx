@@ -19,7 +19,7 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="emails" element={<Emails />} />
               <Route path="categories" element={<Categories />} />
-              <Route path="statistics" element={<Statistics />} />
+              {/* <Route path="statistics" element={<Statistics />} /> */}
               <Route path="flows" element={<Flows />} />
               <Route path="settings" element={<Settings />} />
             </Route>

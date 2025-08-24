@@ -7,7 +7,8 @@ import {
   EnvelopeIcon,
   ArrowPathIcon,
   XMarkIcon,
-  PlusIcon
+  PlusIcon,
+  EyeSlashIcon
 } from '@heroicons/react/24/outline';
 import MsalService from '../services/MsalService';
 import GraphService from '../services/GraphService';
@@ -57,7 +58,8 @@ const statusOptions = [
   { value: EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT, label: 'Rückfrage gesendet' },
   { value: EMAIL_STATUS.WEITERGELEITET, label: 'Weitergeleitet' },
   { value: "Unbearbeitet", label: 'Unbearbeitet' },
-  { value: EMAIL_STATUS.FEHLENDE_KUNDENNUMMER, label: 'Fehlende Kundennummer' }
+  { value: EMAIL_STATUS.FEHLENDE_KUNDENNUMMER, label: 'Fehlende Kundennummer' },
+  { value: EMAIL_STATUS.AUSGEBLENDET, label: 'Ausgeblendet' }
   // Add any other statuses you use
 ];
 
@@ -70,6 +72,10 @@ const Emails: React.FC = () => {
   const [error, setError] = useState('');
   const [outlookConnected, setOutlookConnected] = useState(false);
   
+  // NEW: state for manual forwarding popover
+  const [openManualForwardEmailId, setOpenManualForwardEmailId] = useState<string | null>(null);
+  const [manualForwardRecipient, setManualForwardRecipient] = useState('');
+
   // Information über den angemeldeten Benutzer
   const [loggedInUser, setLoggedInUser] = useState({
     displayName: '',
@@ -94,11 +100,11 @@ const Emails: React.FC = () => {
   // Protokoll für gesendete automatische Antworten
   const [sentReplies, setSentReplies] = useState<{[emailId: string]: boolean}>({});
   
-  // Zustand für die Detailansicht einer E-Mail
+  // Detailansicht
   const [selectedEmail, setSelectedEmail] = useState<DisplayEmail | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   
-  // Zustand für den E-Mail-Editor
+  // E-Mail-Editor
   const [emailEditorOpen, setEmailEditorOpen] = useState(false);
   const [emailToEdit, setEmailToEdit] = useState<DisplayEmail | null>(null);
 
@@ -112,6 +118,10 @@ const Emails: React.FC = () => {
     const handleClickOutside = (event: MouseEvent) => {
       if (!(event.target as HTMLElement).closest(".dropdown-wrapper")) {
         setOpenDropdownEmailId(null);
+      }
+      if (!(event.target as HTMLElement).closest(".manual-forward-wrapper")) {
+        setOpenManualForwardEmailId(null);
+        setManualForwardRecipient('');
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -130,31 +140,26 @@ const Emails: React.FC = () => {
 
   const handleAddCategory = async (email: DisplayEmail, cat: string) => {
     try {
-      // build next list
       const current = Array.isArray(email.all_categories) ? [...email.all_categories] : [];
       let nextCats: string[];
 
       if (current.length === 1 && current[0] === "Sonstiges") {
-        // replace "Sonstiges" with the new category
         nextCats = [cat];
       } else if (!current.includes(cat)) {
         nextCats = [...current, cat];
       } else {
-        nextCats = current; // already there; still make it main
+        nextCats = current;
       }
 
-      // persist categories + make new one the main category
       await updateEmailCategories(email.id, {
         all_categories: nextCats,
         category: cat,
       });
 
-      // (optional) mark as categorized if it was uncategorized
       if (email.status === EMAIL_STATUS.UNKATEGORISIERT) {
         await handleStatusUpdate(email.id, EMAIL_STATUS.KATEGORISIERT);
       }
 
-      // optimistic UI update
       setEmails(prev =>
         prev.map(e =>
           e.id === email.id ? { ...e, all_categories: nextCats, category: cat } : e
@@ -174,19 +179,16 @@ const Emails: React.FC = () => {
       const removed = current[index];
       const next = current.filter((_, i) => i !== index);
 
-      // decide next main category
       let nextMain: string | null;
 
       if (next.length === 0) {
         nextMain = "Sonstiges";
       } else if (email.category === removed) {
-        // if we removed the main, promote the first remaining
         nextMain = next[0];
       } else {
         nextMain = email.category || next[0];
       }
 
-      // if empty, ensure we store Sonstiges as the only one
       const nextCats = next.length === 0 ? ["Sonstiges"] : next;
 
       await updateEmailCategories(email.id, {
@@ -194,7 +196,6 @@ const Emails: React.FC = () => {
         category: nextMain,
       });
 
-      // optimistic UI
       setEmails(prev =>
         prev.map(e =>
           e.id === email.id ? { ...e, all_categories: nextCats, category: nextMain } : e
@@ -221,13 +222,11 @@ const Emails: React.FC = () => {
     const wasEmpty = current.length === 0;
     current.push(num);
 
-    // persist both the array and primary field
     await updateEmailCustomerNumbers(email.id, {
       all_customer_numbers: current,
       customer_number: current[0] ?? null,
     });
 
-    // clear "Fehlt" status if this was the first one
     if (wasEmpty && email.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
       await handleStatusUpdate(
         email.id,
@@ -235,7 +234,6 @@ const Emails: React.FC = () => {
       );
     }
 
-    // optimistic UI
     setEmails(prev =>
       prev.map(e =>
         e.id === email.id
@@ -262,7 +260,6 @@ const Emails: React.FC = () => {
       await handleStatusUpdate(email.id, EMAIL_STATUS.FEHLENDE_KUNDENNUMMER);
     }
 
-    // optimistic UI
     setEmails(prev =>
       prev.map(e =>
         e.id === email.id
@@ -280,51 +277,38 @@ const Emails: React.FC = () => {
     await loadEmails()
   };
   
-  // Einstellungen beim Laden der Komponente abrufen (simuliert)
+  // Einstellungen laden
   useEffect(() => {
-    // In einer vollständigen Implementierung würden die Einstellungen
-    // aus einer Datenbank oder dem lokalen Speicher geladen werden
     const loadSettings = () => {
-      // Hier könnten die Einstellungen aus localStorage geladen werden
       const savedSettings = localStorage.getItem('emailSettings');
       if (savedSettings) {
         setSettings(JSON.parse(savedSettings));
       }
     };
-    
     loadSettings();
   }, []);
 
-  // Beim Laden der Komponente prüfen, ob der Benutzer angemeldet ist und E-Mails laden
+  // Auth prüfen + E-Mails laden
   useEffect(() => {
     const checkAuthAndLoadEmails = async () => {
       try {
-        // MSAL-Redirect-Antwort verarbeiten, falls vorhanden
         await MsalService.handleRedirectResponse();
-        
-        // Prüfen, ob ein Benutzer angemeldet ist
         const isLoggedIn = MsalService.isLoggedIn();
         setOutlookConnected(isLoggedIn);
         
         if (isLoggedIn) {
-          // Benutzerinformationen abrufen
           try {
             const userInfo = await GraphService.getUserInfo();
             setLoggedInUser({
               displayName: userInfo.displayName || '',
               email: userInfo.mail || userInfo.userPrincipalName || '@bsmarthh.onmicrosoft.com'
             });
-            
-            // E-Mails laden
             await loadEmails();
           } catch (error) {
             console.error('Fehler beim Abrufen der Benutzerinformationen:', error);
-            
-            // Versuchen, den MSAL-Status zurückzusetzen und erneut anzumelden
             if (error instanceof Error && 
                 (error.message.includes('Authentifizierung') || 
                  error.message.includes('keine Authentifizierung möglich'))) {
-              console.log('Authentifizierungsproblem erkannt, versuche Neuanmeldung...');
               setError('Authentifizierungsproblem erkannt. Bitte melden Sie sich erneut an.');
               setOutlookConnected(false);
             }
@@ -339,13 +323,12 @@ const Emails: React.FC = () => {
     checkAuthAndLoadEmails();
   }, []);
 
-  // Regelmäßige Aktualisierung für Analyse-Fortschritt
+  // Regelmäßige Aktualisierung
   useEffect(() => {
     if (!outlookConnected) return;
 
     const interval = setInterval(async () => {
       try {
-        // Lade nur die existierenden E-Mails aus der Datenbank (ohne neue von Outlook)
         const existingEmails = await getEmailsWithStatus();
         
         const displayEmails: DisplayEmail[] = existingEmails.map(email => ({
@@ -366,7 +349,6 @@ const Emails: React.FC = () => {
           all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
         }));
 
-        // Sortiere nach Empfangsdatum
         displayEmails.sort((a, b) => 
           new Date(b.received_date).getTime() - new Date(a.received_date).getTime()
         );
@@ -375,12 +357,11 @@ const Emails: React.FC = () => {
         setLoading(false);
       } catch (error) {
         console.error('Fehler beim Aktualisieren der E-Mail-Liste:', error);
-      }}, 5000); // Alle 5 Sekunden aktualisieren
+      }}, 5000);
       
       return () => clearInterval(interval);
   }, [outlookConnected]);
   
-  // Funktion zum Öffnen einer E-Mail in der Detailansicht
   const handleEmailClick = async(emailId: string, messageId: string) => {
     console.log("CLICKLCICKLCKICK")
     try {
@@ -388,8 +369,7 @@ const Emails: React.FC = () => {
       setSelectedEmail(emails.find(e => e.id === emailId) || null);
       setSelectedMessageId(messageId);
     } catch (error) {
-      if (error.message === "Request failed with status code 404") {
-        console.log("Email nicht abrufbar")
+      if ((error as any).message === "Request failed with status code 404") {
         alert("Email nicht abrufbar");
         await deleteRequestStatus(emailId)
         await deleteForwardingStatus(emailId)
@@ -402,14 +382,11 @@ const Emails: React.FC = () => {
         await loadEmails()
       }
       else{
-        console.log("some Error")
         await loadEmails()
       }
     }
   };
 
-  
-  // Funktion zum Schließen der Detailansicht
   const handleCloseEmailDetail = async() => {
     setSelectedEmail(null);
     setSelectedMessageId(null);
@@ -464,9 +441,7 @@ const Emails: React.FC = () => {
 
   const processOutlookEmail = async (outlookEmail: any, existingEmail: IncomingEmail | null): Promise<DisplayEmail> => {
     try {
-      // Wenn die E-Mail bereits existiert, gib sie einfach zurück
       if (existingEmail) {
-        console.log('E-Mail existiert bereits:', outlookEmail.subject);
         return {
           ...existingEmail,
           sender: existingEmail.sender_email,
@@ -484,9 +459,6 @@ const Emails: React.FC = () => {
         };
       }
 
-      console.log('Verarbeite neue E-Mail:', outlookEmail.subject);
-
-      // Erstelle das E-Mail-Objekt OHNE sofortige Analyse
       const processedEmail: DisplayEmail = {
         id: uuidv4(),
         message_id: outlookEmail.id,
@@ -495,15 +467,15 @@ const Emails: React.FC = () => {
         subject: outlookEmail.subject || '',
         content: outlookEmail.bodyPreview || '',
         received_date: new Date(outlookEmail.receivedDateTime),
-        customer_number: null, // Wird durch Hintergrund-Analyse gesetzt
-        category: null, // Wird durch Hintergrund-Analyse gesetzt
-        status: EMAIL_STATUS.FEHLENDE_KUNDENNUMMER, // Standardstatus, wird durch Analyse aktualisiert
+        customer_number: null,
+        category: null,
+        status: EMAIL_STATUS.FEHLENDE_KUNDENNUMMER,
         created_at: new Date(),
         updated_at: new Date(),
         hasAttachments: outlookEmail.hasAttachments || false,
         attachments: outlookEmail.attachments || [],
         forwarded: false,
-        analysis_completed: false, // Neue Felder für mehrstufige Analyse
+        analysis_completed: false,
         text_analysis_result: null,
         image_analysis_result: null,
         sender: outlookEmail.from?.emailAddress?.address || '',
@@ -519,9 +491,6 @@ const Emails: React.FC = () => {
         forwarding_completed: false
       };
 
-      console.log('Speichere E-Mail in Datenbank:', processedEmail.id);
-
-      // Speichere die E-Mail SOFORT in der Datenbank (ohne Analyse)
       const savedEmail = await saveEmailData({
         id: processedEmail.id,
         message_id: processedEmail.message_id,
@@ -545,16 +514,11 @@ const Emails: React.FC = () => {
         throw new Error('Fehler beim Speichern der E-Mail in der Datenbank');
       }
 
-      console.log('E-Mail erfolgreich gespeichert, starte Hintergrund-Analyse...');
-
-      // Starte die Hintergrund-Analyse (läuft asynchron)
-      console.log("when finished sending to " + settings.forwardingEmail)
       analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
         .catch(error => {
           console.error('Fehler bei Hintergrund-Analyse:', error);
         });
 
-      // Gib die E-Mail sofort zurück (ohne auf Analyse zu warten)
       return {
         ...savedEmail,
         sender: savedEmail.sender_email,
@@ -583,24 +547,18 @@ const Emails: React.FC = () => {
       setLoading(true);
       setError('');
       
-      // Hole zuerst die existierenden E-Mails aus der Datenbank
       const existingEmails = await getEmailsWithStatus();
-      console.log('Existierende E-Mails geladen:', existingEmails.length);
-      
       const existingEmailsMap = new Map(
         existingEmails.map(email => [email.message_id, email])
       );
       
-      // Hole dann die E-Mails aus Outlook
       const outlookEmails = await GraphService.getInboxMails(50);
-      console.log('Outlook E-Mails geladen:', outlookEmails.length);
       const deletedEmailIds= outlookEmails.filter(
-        (em: object) => em.hasOwnProperty('@removed')
-      ).map((elem) => {return elem.id})
-      console.log("deleted Mails: ")
-      console.log( deletedEmailIds)
+        (em: object) => Object.prototype.hasOwnProperty.call(em, '@removed')
+      ).map((elem: any) => elem.id)
+
       const newEmails = outlookEmails.filter(
-        (em: object) => !em.hasOwnProperty('@removed')
+        (em: object) => !Object.prototype.hasOwnProperty.call(em, '@removed')
       )
 
       for (const delId of deletedEmailIds){
@@ -612,15 +570,11 @@ const Emails: React.FC = () => {
       
       const processedEmails: DisplayEmail[] = [];
       
-      // Verarbeite jede E-Mail einzeln
       for (const outlookEmail of newEmails) {
         try {
           const existingEmail = existingEmailsMap.get(outlookEmail.id);
           
-          // Wenn die E-Mail bereits existiert, füge sie direkt hinzu OHNE weitere Verarbeitung
           if (existingEmail) {
-            console.log(`E-Mail ${existingEmail.id} existiert bereits - überspringe Verarbeitung`);
-            
             processedEmails.push({
               ...existingEmail,
               sender: existingEmail.sender_email,
@@ -639,61 +593,31 @@ const Emails: React.FC = () => {
             continue;
           }
 
-          // NUR für neue E-Mails: Lade vollständigen Inhalt mit Bildern
-          console.log(`Neue E-Mail gefunden: ${outlookEmail.subject} - lade vollständigen Inhalt...`);
-          
           let fullEmail = outlookEmail;
           if (outlookEmail.hasAttachments) {
-            console.log(`E-Mail ${outlookEmail.id} hat Anhänge, lade vollständigen Inhalt mit Bildern...`);
             fullEmail = await GraphService.getEmailContent(outlookEmail.id);
             
-            // Für alle Bild-Attachments base64 sofort laden
             if (fullEmail.attachments && Array.isArray(fullEmail.attachments)) {
-              console.log(`Gefundene Attachments: ${fullEmail.attachments.length}`);
-              
               for (let i = 0; i < fullEmail.attachments.length; i++) {
                 const att = fullEmail.attachments[i] as any;
-                console.log(`Attachment ${i + 1}:`, {
-                  name: att.name,
-                  contentType: att.contentType,
-                  hasId: !!att.id,
-                  size: att.size
-                });
-                
-                // Nur Bilder verarbeiten
                 if (att.contentType && att.contentType.startsWith('image/') && att.id) {
                   try {
-                    console.log(`Lade base64 für Bild-Attachment: ${att.name}`);
                     const buffer = await GraphService.getAttachmentContent(fullEmail.id, att.id);
                     const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
                     att.contentBytes = base64;
-                    console.log(`Base64 erfolgreich geladen für ${att.name}, Größe: ${base64.length} Zeichen`);
                   } catch (error) {
                     console.error(`Fehler beim Laden von base64 für Attachment ${att.name}:`, error);
                     att.contentBytes = null;
                   }
                 } else if (att.contentType && att.contentType.startsWith('image/')) {
-                  console.warn(`Bild-Attachment ${att.name} hat keine ID - kann nicht geladen werden`);
                   att.contentBytes = null;
                 }
               }
-              
-              // Zähle erfolgreich geladene Bilder
-              const loadedImages = fullEmail.attachments.filter((att: any) => 
-                att.contentType?.startsWith('image/') && att.contentBytes
-              ).length;
-              const totalImages = fullEmail.attachments.filter((att: any) => 
-                att.contentType?.startsWith('image/')
-              ).length;
-              
-              console.log(`Bildanhänge für neue E-Mail geladen: ${loadedImages}/${totalImages}`);
             }
           }
           
-          // Verarbeite nur neue E-Mails (mit vollständig geladenen Bildern)
           const processedEmail = await processOutlookEmail(fullEmail, null);
           
-          // Füge die verarbeitete E-Mail zur Liste hinzu
           if (processedEmail) {
             processedEmails.push({
               ...processedEmail,
@@ -717,12 +641,10 @@ const Emails: React.FC = () => {
         }
       }
 
-      // Sortiere die E-Mails nach Empfangsdatum (neueste zuerst)
       processedEmails.sort((a, b) => 
         new Date(b.received_date).getTime() - new Date(a.received_date).getTime()
       );
 
-      console.log('Verarbeitete E-Mails:', processedEmails.length);
       setEmails(processedEmails);
       
     } catch (error) {
@@ -751,20 +673,21 @@ const Emails: React.FC = () => {
   if (filterStatus === "Unbearbeitet") {
     matchesStatus = (email.status !== "Weitergeleitet" && email.status !== "kundennummer-angefragt");
   }
-  else {
+  else {
     matchesStatus =
-      filterStatus === 'alle' || email.status === filterStatus;
+      filterStatus === 'alle' 
+      ? email.status !== EMAIL_STATUS.AUSGEBLENDET
+      : email.status === filterStatus;
   }
   
-
   return matchesSearch && matchesCategory && matchesStatus;
 });
 
-  // Status-Icon basierend auf dem E-Mail-Status
+  // Status-Icon
   const getStatusIcon = (status: string, category?: string) => {
     switch(status) {
       case EMAIL_STATUS.KATEGORISIERT:
-        return <CheckCircleIcon className="w-5 h-5 text-green-500" />;
+        return <CheckCircleIcon className="w-5 h-5 text-yellow-500" />;
       case EMAIL_STATUS.UNKATEGORISIERT:
         return <ExclamationCircleIcon className="w-5 h-5 text-orange-500" />;
       case EMAIL_STATUS.FEHLENDE_KUNDENNUMMER:
@@ -773,42 +696,39 @@ const Emails: React.FC = () => {
         return <EnvelopeIcon className="w-5 h-5 text-yellow-500" />;
       case EMAIL_STATUS.WEITERGELEITET:
         return <EnvelopeIcon className="w-5 h-5 text-green-500" />;
+      case EMAIL_STATUS.AUSGEBLENDET:
+        return <EyeSlashIcon className="w-5 h-5 text-gray-400" />;
       default:
         return <EnvelopeIcon className="w-5 h-5 text-gray-500" />;
     }
   };
 
-  // Manuelles Senden einer automatischen Antwort für eine bestimmte E-Mail
+  // Editor öffnen
   const manualSendReply = async (emailId: string) => {
     try {
       const email = emails.find(e => e.id === emailId);
       if (!email) return;
-
-      // Öffne den E-Mail-Editor statt die E-Mail direkt zu senden
       setEmailToEdit(email);
       setEmailEditorOpen(true);
-      
     } catch (error) {
       console.error('Fehler beim Öffnen des E-Mail-Editors:', error);
       alert('Fehler beim Öffnen des E-Mail-Editors: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
-    // Manuelles Senden einer automatischen Antwort für eine bestimmte E-Mail
+  // Standard-Weiterleitung (bestehend)
   const forwardEmails = async (emailId: string) => {
     try {
       const email = emails.find(e => e.id === emailId);
       if (!email) return;
-      // Starte die Hintergrund-Analyse (läuft asynchron)
-      console.log("when finished sending to " + settings.forwardingEmail)
+
       analysisService.startForwarding(email.id, email.message_id, settings.forwardingEmail)
         .catch(error => {
           console.error('Fehler bei Hintergrund-Analyse:', error);
         });
       
-      // Aktualisiere den Status in der Datenbank
       await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
-      // Status lokal aktualisieren
+
       setEmails(prevEmails =>
         prevEmails.map(e =>
           e.id === email.id
@@ -826,15 +746,54 @@ const Emails: React.FC = () => {
     }
   };
 
-  // Callback für erfolgreich gesendete E-Mail aus dem Editor
+  // NEW: Manuelle Weiterleitung (Empfänger frei wählen)
+  const manualForwardEmails = async (emailId: string, recipientEmail: string) => {
+    try {
+      const email = emails.find(e => e.id === emailId);
+      if (!email) return;
+
+      // simple validation
+      const to = (recipientEmail || '').trim();
+      if (!to || !to.includes('@')) {
+        alert('Bitte eine gültige Empfänger-E-Mail eingeben.');
+        return;
+      }
+
+      analysisService.startManualForwarding(email.id, email.message_id, to)
+        .catch(error => {
+          console.error('Fehler bei Hintergrund-Analyse (manuelle Weiterleitung):', error);
+        });
+
+      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+
+      setEmails(prevEmails =>
+        prevEmails.map(e =>
+          e.id === email.id
+            ? { ...e, status: EMAIL_STATUS.WEITERGELEITET }
+            : e
+        )
+      );
+
+      // close popover + clear
+      setOpenManualForwardEmailId(null);
+      setManualForwardRecipient('');
+
+      return { success: true };
+    } catch (error) {
+      console.error('Fehler bei manueller Weiterleitung', error);
+      alert('Fehler bei manueller Weiterleitung ' + (error instanceof Error ? error.message : String(error)));
+      const error_message = error instanceof Error ? error.message : String(error)
+      return { success: false, error: error_message};
+    }
+  };
+
+  // Callback nach Senden im Editor
   const handleEmailSent = async () => {
     if (!emailToEdit) return;
 
     try {
-      // Aktualisiere den Status in der Datenbank
       await handleStatusUpdate(emailToEdit.id, EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT);
       
-      // Status lokal aktualisieren
       setEmails(prevEmails =>
         prevEmails.map(e =>
           e.id === emailToEdit.id
@@ -843,12 +802,8 @@ const Emails: React.FC = () => {
         )
       );
       
-      // Markiere die E-Mail als beantwortet
       setSentReplies(prev => ({...prev, [emailToEdit.id]: true}));
-      
       alert('E-Mail wurde erfolgreich gesendet.');
-      
-      // Lade die E-Mails neu, um den aktualisierten Status zu erhalten
       await loadEmails();
     } catch (error) {
       console.error('Fehler beim Aktualisieren des E-Mail-Status:', error);
@@ -856,7 +811,6 @@ const Emails: React.FC = () => {
     }
   };
 
-  // Callback für das Schließen des E-Mail-Editors
   const handleEmailEditorClose = () => {
     setEmailEditorOpen(false);
     setEmailToEdit(null);
@@ -883,7 +837,6 @@ const Emails: React.FC = () => {
             all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
           }));
 
-          // Setze die gesendeten Antworten basierend auf dem Status
           const newSentReplies: {[key: string]: boolean} = {};
           displayEmails.forEach(email => {
             if (email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT) {
@@ -895,11 +848,10 @@ const Emails: React.FC = () => {
           setEmails(displayEmails);
         }
         if (storedData.settings) {
-          // Lade die Einstellungen für automatische Antworten
-          const autoReplySettings = storedData.settings.find(s => s.setting_key === 'autoReply');
-          const replyTemplateSettings = storedData.settings.find(s => s.setting_key === 'defaultReplyTemplate');
-          const unrecognizableReplySettings = storedData.settings.find(s => s.setting_key === 'defaultUnrecognizableReplyTemplate');
-          const forwardingEmail = storedData.settings.find(s => s.setting_key === 'emailForward');
+          const autoReplySettings = storedData.settings.find((s: any) => s.setting_key === 'autoReply');
+          const replyTemplateSettings = storedData.settings.find((s: any) => s.setting_key === 'defaultReplyTemplate');
+          const unrecognizableReplySettings = storedData.settings.find((s: any) => s.setting_key === 'defaultUnrecognizableReplyTemplate');
+          const forwardingEmail = storedData.settings.find((s: any) => s.setting_key === 'emailForward');
           setSettings(prev => ({
             ...prev,
             autoReply: autoReplySettings?.setting_value === 'true',
@@ -920,7 +872,6 @@ const Emails: React.FC = () => {
     try {
       const savedEmail = await saveEmailData(email);
       if (savedEmail) {
-        // Konvertiere das gespeicherte E-Mail-Objekt in ein DisplayEmail
         const displayEmail: DisplayEmail = {
           ...savedEmail,
           sender: savedEmail.sender_email,
@@ -970,14 +921,11 @@ const Emails: React.FC = () => {
     if (!selectedEmail) return;
 
     try {
-      console.log('GPT-Analyse abgeschlossen:', result);
-      
       await updateEmailAnalysis(selectedEmail.message_id, {
         customerNumber: result.customerNumber,
         category: result.category
       });
 
-      // Aktualisiere die E-Mail-Liste
       setEmails(prevEmails => 
         prevEmails.map(email => 
           email.message_id === selectedEmail.message_id
@@ -990,7 +938,6 @@ const Emails: React.FC = () => {
         )
       );
 
-      // Aktualisiere die ausgewählte E-Mail
       setSelectedEmail(prevEmail => 
         prevEmail
           ? {
@@ -1001,7 +948,6 @@ const Emails: React.FC = () => {
           : null
       );
 
-      console.log('E-Mail erfolgreich aktualisiert');
     } catch (error) {
       console.error('Fehler beim Aktualisieren der E-Mail:', error);
     }
@@ -1083,8 +1029,6 @@ const Emails: React.FC = () => {
               </div>
               
               <div className="flex items-center space-x-4">
-
-                
                 <button
                   className="p-2 rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
                   onClick={loadEmails}
@@ -1185,7 +1129,6 @@ const Emails: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             {email.all_customer_numbers && email.all_customer_numbers.length > 0 ? (
-                              // ----- has numbers: show chips + add popover
                               <div className="space-y-1">
                                 <div className="flex flex-wrap">
                                   {email.all_customer_numbers.map((num, index) => (
@@ -1205,7 +1148,6 @@ const Emails: React.FC = () => {
                                   ))}
                                 </div>
 
-                                {/* add popover (same as before) */}
                                 <div className="relative inline-block">
                                   {openNumberEditorEmailId === email.id ? (
                                     <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
@@ -1244,7 +1186,6 @@ const Emails: React.FC = () => {
                                 </div>
                               </div>
                             ) : (
-                              // ----- empty states (Fehlt / Angefragt / Wird analysiert...) WITH add popover
                               <div className="flex items-center space-x-2 relative">
                                 {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT ? (
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
@@ -1260,7 +1201,6 @@ const Emails: React.FC = () => {
                                   </span>
                                 )}
 
-                                {/* same add button + popover even when empty */}
                                 {openNumberEditorEmailId === email.id ? (
                                   <div className="absolute z-10 top-7 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
                                     <input
@@ -1302,7 +1242,6 @@ const Emails: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap">
                             {email.category ? (
                               <div className="space-y-1">
-                                {/* Zeige alle Kategorien an */}
                                 {email.all_categories && email.all_categories.length > 0 ? (
                                   <div className="flex flex-wrap">
                                     {email.all_categories.map((category, index) => (
@@ -1328,11 +1267,10 @@ const Emails: React.FC = () => {
                                     {email.category}
                                   </span>
                                 )}
-                                {/* Plus icon and dropdown */}
                                 <div className="relative inline-block dropdown-wrapper">
                                   <button
                                     onClick={(e) => {
-                                      e.stopPropagation(); // prevent row click
+                                      e.stopPropagation();
                                       setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
                                     }}
                                     className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
@@ -1353,7 +1291,6 @@ const Emails: React.FC = () => {
                                       </div>
                                     )}
                                 </div>
-                                {/* Zeige Anzahl der Weiterleitungen */}
                                 {email.all_customer_numbers && email.all_customer_numbers.length > 0 && 
                                  email.all_categories && email.all_categories.length > 0 && ((email.all_categories.length == 1 && email.all_categories[0] == "Sonstiges")? false: true)&&(
                                   <div className="text-xs text-blue-600 mt-1">
@@ -1371,23 +1308,26 @@ const Emails: React.FC = () => {
                               </span>
                             )}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+
+                          {/* Aktionen */}
+                          <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
                             {(email.customer_number && email.category != "Sonstiges") && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleForwardClick(email.id);
                                 }}
-                                className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                               >
                                 Weiterleitung auslösen
                               </button>
-                              )}
-                              {email.status === EMAIL_STATUS.WEITERGELEITET && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                  Weiterleitung gesendet
-                                </span>
-                              )}
+                            )}
+
+                            {email.status === EMAIL_STATUS.WEITERGELEITET && (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                                Weiterleitung gesendet
+                              </span>
+                            )}
                             
                             {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
                               <button
@@ -1395,21 +1335,106 @@ const Emails: React.FC = () => {
                                   e.stopPropagation();
                                   manualSendReply(email.id);
                                 }}
-                                className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                               >
                                 Anfrage senden
                               </button>
                             )}
                             {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
                                 Kundennummer angefragt
                               </span>
                             )}
                             {sentReplies[email.id] && email.status !== EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
                                 Antwort gesendet
                               </span>
                             )}
+
+                            {/* Hide / Unhide toggle */}
+                            {email.status === EMAIL_STATUS.AUSGEBLENDET ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const nextStatus = !email.customer_number
+                                    ? EMAIL_STATUS.FEHLENDE_KUNDENNUMMER
+                                    : (email.category ? EMAIL_STATUS.KATEGORISIERT : EMAIL_STATUS.UNKATEGORISIERT);
+
+                                  handleStatusUpdate(email.id, nextStatus);
+                                }}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                title="E-Mail einblenden"
+                              >
+                                Einblenden
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStatusUpdate(email.id, EMAIL_STATUS.AUSGEBLENDET);
+                                }}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                title="E-Mail ausblenden"
+                              >
+                                Ausblenden
+                              </button>
+                            )}
+
+                            {/* NEW: Manuelle Weiterleitung */}
+                            <div className="relative inline-block manual-forward-wrapper">
+                              {openManualForwardEmailId === email.id ? (
+                                <div className="absolute z-10 top-8 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-64">
+                                  <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
+                                  <input
+                                    autoFocus
+                                    type="email"
+                                    placeholder="name@example.com"
+                                    value={manualForwardRecipient}
+                                    onChange={(e) => setManualForwardRecipient(e.target.value)}
+                                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                    onKeyDown={async (e) => {
+                                      if (e.key === 'Enter') {
+                                        await manualForwardEmails(email.id, manualForwardRecipient);
+                                        await loadEmails();
+                                      }
+                                      if (e.key === 'Escape') {
+                                        setOpenManualForwardEmailId(null);
+                                        setManualForwardRecipient('');
+                                      }
+                                    }}
+                                  />
+                                  <div className="flex justify-end space-x-2">
+                                    <button
+                                      className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                      onClick={() => { setOpenManualForwardEmailId(null); setManualForwardRecipient(''); }}
+                                    >
+                                      Abbrechen
+                                    </button>
+                                    <button
+                                      className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                      onClick={async () => {
+                                        await manualForwardEmails(email.id, manualForwardRecipient);
+                                        await loadEmails();
+                                      }}
+                                    >
+                                      Senden
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenManualForwardEmailId(email.id);
+                                    setManualForwardRecipient('');
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 mr-2 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                  title="Manuelle Weiterleitung"
+                                >
+                                  Manuelle Weiterleitung
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1464,4 +1489,4 @@ const Emails: React.FC = () => {
   );
 };
 
-export default Emails; 
+export default Emails;

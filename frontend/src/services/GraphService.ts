@@ -4,11 +4,16 @@ import axios from 'axios';
 const GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0';
 const inboxEmailAdress = import.meta.env.VITE_INBOX_EMAIL_ADRESS || '';
 
+// NEW: optional cutoff from env (ISO 8601)
+const ENV_SYNC_START_UTC =
+  (import.meta.env as any)?.VITE_GRAPH_SYNC_START_UTC
+    ? String((import.meta.env as any).VITE_GRAPH_SYNC_START_UTC).trim()
+    : '';
+
 const STORAGE_KEYS = {
   SYNC_START_UTC: 'graph.syncStartUtc',
   DELTA_LINK: 'graph.deltaLink',
 };
-
 
 /**
  * Service für die Microsoft Graph API
@@ -19,26 +24,51 @@ export const GraphService = {
 
   ensureSyncStart() {
     if (!GraphService.syncWindowStartUtc) {
-      // try restore from storage first
-      const stored = typeof window !== 'undefined'
-        ? window.localStorage.getItem(STORAGE_KEYS.SYNC_START_UTC)
-        : null;
+      // NEW: prefer env var if present and valid
+      if (ENV_SYNC_START_UTC) {
+        const envDate = new Date(ENV_SYNC_START_UTC);
+        if (!Number.isNaN(envDate.getTime())) {
+          GraphService.syncWindowStartUtc = envDate.toISOString();
+          // Also persist so subsequent loads behave consistently
+          try {
+            window.localStorage.setItem(
+              STORAGE_KEYS.SYNC_START_UTC,
+              GraphService.syncWindowStartUtc
+            );
+          } catch {}
+          console.log('Sync window start (from ENV, UTC):', GraphService.syncWindowStartUtc);
+          return;
+        } else {
+          console.warn(
+            'VITE_GRAPH_SYNC_START_UTC is not a valid date. Falling back to stored / now.'
+          );
+        }
+      }
+
+      // try restore from storage next
+      const stored =
+        typeof window !== 'undefined'
+          ? window.localStorage.getItem(STORAGE_KEYS.SYNC_START_UTC)
+          : null;
 
       if (stored) {
         GraphService.syncWindowStartUtc = stored;
       } else {
+        // fallback: "now"
         const d = new Date();
         d.setMilliseconds(0);
         GraphService.syncWindowStartUtc = d.toISOString();
         try {
-          window.localStorage.setItem(STORAGE_KEYS.SYNC_START_UTC, GraphService.syncWindowStartUtc);
+          window.localStorage.setItem(
+            STORAGE_KEYS.SYNC_START_UTC,
+            GraphService.syncWindowStartUtc
+          );
         } catch {}
       }
       console.log('Sync window start (UTC):', GraphService.syncWindowStartUtc);
     }
   },
 
-  
   resetDelta() {
     GraphService.deltaLink = null;
     GraphService.syncWindowStartUtc = null;
@@ -53,20 +83,20 @@ export const GraphService = {
    */
   getAuthenticatedClient: async () => {
     const token = await MsalService.getAccessToken();
-    
+
     if (!token) {
       throw new Error('Keine Authentifizierung möglich. Bitte melden Sie sich an.');
     }
-    
+
     return axios.create({
       baseURL: GRAPH_API_ENDPOINT,
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
     });
   },
-  
+
   /**
    * Ruft die Mails im Posteingang ab
    */
@@ -81,7 +111,8 @@ export const GraphService = {
       }
 
       const syncStart = new Date(GraphService.syncWindowStartUtc!);
-      const keepIfNewer = (m: any) => m?.receivedDateTime && new Date(m.receivedDateTime) >= syncStart;
+      const keepIfNewer = (m: any) =>
+        m?.receivedDateTime && new Date(m.receivedDateTime) >= syncStart;
 
       let items: any[] = [];
       let url: string | null = GraphService.deltaLink;
@@ -91,7 +122,10 @@ export const GraphService = {
         if (url) {
           res = await client.get(url);
         } else {
-          const filter = encodeURIComponent(`receivedDateTime ge ${GraphService.syncWindowStartUtc}`);
+          // CHANGED: same filter, but now driven by env/ensureSyncStart value
+          const filter = encodeURIComponent(
+            `receivedDateTime ge ${GraphService.syncWindowStartUtc}`
+          );
           const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
           console.log('Initial delta GET:', firstUrl);
           res = await client.get(firstUrl);
@@ -123,7 +157,9 @@ export const GraphService = {
       if (err?.response?.status === 410) {
         console.warn('Delta token expired (410). Resetting and retrying once.');
         GraphService.deltaLink = null;
-        try { window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK); } catch {}
+        try {
+          window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
+        } catch {}
         return await GraphService.getInboxMails(maxResults);
       }
       console.error('Fehler beim Abrufen der E-Mails:', err);
@@ -131,86 +167,81 @@ export const GraphService = {
     }
   },
 
-
-  
   /**
    * Ruft eine bestimmte E-Mail anhand ihrer ID ab
    */
   getEmail: async (emailId: string) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
-      // URL-kodiere die E-Mail-ID
       const encodedEmailId = encodeURIComponent(emailId);
-      const response = await client.get(`/users/${inboxEmailAdress}/messages/${encodedEmailId}`);
+      const response = await client.get(
+        `/users/${inboxEmailAdress}/messages/${encodedEmailId}`
+      );
       return response.data;
     } catch (error) {
       console.error(`Fehler beim Abrufen der E-Mail mit ID ${emailId}:`, error);
       throw error;
     }
   },
-  
+
   /**
    * Ruft eine bestimmte E-Mail mit vollständigem HTML-Body anhand ihrer ID ab
    */
   getEmailContent: async (emailId: string) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
-      // URL-kodiere die E-Mail-ID
       const encodedEmailId = encodeURIComponent(emailId);
-      // $select Parameter hinzufügen, um den vollständigen HTML-Body zu erhalten und $expand für Anhänge
-      const response = await client.get(`/users/${inboxEmailAdress}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`);
-      
-      // Markiere Inline-Anhänge und bereinige Content-IDs
+      const response = await client.get(
+        `/users/${inboxEmailAdress}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`
+      );
+
       if (response.data.attachments) {
         response.data.attachments = response.data.attachments.map((attachment: any) => {
-          // Bereinige die Content-ID
           let contentId = attachment.contentId || '';
-          
-          // Entferne nur die spitzen Klammern, aber behalte den Rest der ID
           contentId = contentId.replace(/^</, '').replace(/>$/, '');
-          
-          // Entferne optional das "cid:" Präfix
           contentId = contentId.replace(/^cid:/, '');
-          
-          // Bestimme, ob es sich um einen echten Inline-Anhang handelt
-          const isInline = !!contentId; // Wenn eine Content-ID vorhanden ist, ist es ein Inline-Anhang
-          
+          const isInline = !!contentId;
+
           console.log('Verarbeite Anhang:', {
             name: attachment.name,
             originalContentId: attachment.contentId,
             cleanedContentId: contentId,
             isInline,
             size: attachment.size,
-            contentType: attachment.contentType
+            contentType: attachment.contentType,
           });
-          
+
           return {
             ...attachment,
             contentId,
-            isInline
+            isInline,
           };
         });
       }
-      
+
       return response.data;
     } catch (error) {
       console.error(`Fehler beim Abrufen des E-Mail-Inhalts mit ID ${emailId}:`, error);
       throw error;
     }
   },
-  
+
   /**
    * Sendet eine E-Mail über Microsoft Graph API
    */
-  sendEmail: async (subject: string, body: string, toRecipients: string[], mailattachments: Array<Object> = []) => {
+  sendEmail: async (
+    subject: string,
+    body: string,
+    toRecipients: string[],
+    mailattachments: Array<Object> = []
+  ) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
-      
+
       if (!client) {
         throw new Error('Nicht authentifiziert. Bitte melden Sie sich an.');
       }
-      
-      // HTML-Formatierung für den Text erstellen
+
       const htmlBody = `
         <!DOCTYPE html>
         <html>
@@ -234,48 +265,41 @@ export const GraphService = {
         </body>
         </html>
       `;
-      
-      // E-Mail-Format vorbereiten
+
       const mailBody = {
         message: {
           subject,
           body: {
             contentType: 'html',
-            content: htmlBody
+            content: htmlBody,
           },
-          toRecipients: toRecipients.map(recipient => ({
-            emailAddress: {
-              address: recipient
-            }
+          toRecipients: toRecipients.map((recipient) => ({
+            emailAddress: { address: recipient },
           })),
           attachments: mailattachments,
           importance: 'normal',
           internetMessageHeaders: [
-            {
-              name: 'X-Custom-Header',
-              value: 'Stadtwerke-Kundenservice'
-            },
-            {
-              name: 'X-Priority',
-              value: '3'
-            }
-          ]
+            { name: 'X-Custom-Header', value: 'Stadtwerke-Kundenservice' },
+            { name: 'X-Priority', value: '3' },
+          ],
         },
-        saveToSentItems: true
+        saveToSentItems: true,
       };
-      
-      // E-Mail senden
+
       console.log('Sende E-Mail an:', toRecipients);
-      const response = await client.post(`/users/${inboxEmailAdress}/sendMail`, mailBody);
+      const response = await client.post(
+        `/users/${inboxEmailAdress}/sendMail`,
+        mailBody
+      );
       console.log('E-Mail erfolgreich gesendet');
-      
+
       return response.data;
     } catch (error) {
       console.error('Fehler beim Senden der E-Mail:', error);
       throw error;
     }
   },
-  
+
   /**
    * Ruft Informationen über den aktuellen Benutzer ab
    */
@@ -289,7 +313,7 @@ export const GraphService = {
       throw error;
     }
   },
-  
+
   /**
    * Lädt den Inhalt eines Anhangs herunter
    */
@@ -298,26 +322,22 @@ export const GraphService = {
       const token = await MsalService.getAccessToken();
       const encodedMessageId = encodeURIComponent(messageId);
       const encodedAttachmentId = encodeURIComponent(attachmentId);
-      
+
       const response = await fetch(
         `https://graph.microsoft.com/v1.0/users/${inboxEmailAdress}/messages/${encodedMessageId}/attachments/${encodedAttachmentId}/$value`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       return await response.arrayBuffer();
     } catch (error) {
       console.error(`Fehler beim Abrufen des Anhangs ${attachmentId}:`, error);
       throw error;
     }
-  }
+  },
 };
 
-export default GraphService; 
+export default GraphService;

@@ -1,124 +1,412 @@
-import React from 'react';
-import { 
-  EnvelopeIcon, 
-  TagIcon, 
-  ExclamationCircleIcon, 
-  CheckCircleIcon
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  EnvelopeIcon,
+  TagIcon,
+  ExclamationCircleIcon,
 } from '@heroicons/react/24/outline';
 
-const Dashboard: React.FC = () => {
-  // Mock-Daten - würden in einer realen Anwendung von der API kommen
-  const stats = [
-    {
-      id: 1,
-      name: 'Neue E-Mails',
-      value: '23',
-      icon: EnvelopeIcon,
-      color: 'bg-blue-100 text-blue-600',
-    },
-    {
-      id: 2,
-      name: 'Kategorisiert',
-      value: '186',
-      icon: TagIcon,
-      color: 'bg-green-100 text-green-600',
-    },
-    {
-      id: 3,
-      name: 'Nicht kategorisierbar',
-      value: '12',
-      icon: ExclamationCircleIcon,
-      color: 'bg-red-100 text-red-600',
-    },
-    {
-      id: 4,
-      name: 'Kundennummer fehlend',
-      value: '5',
-      icon: ExclamationCircleIcon,
-      color: 'bg-orange-100 text-orange-600',
-    },
-  ];
+import { getEmailsWithStatus, getCategories } from '../services/SupabaseService';
+import { EMAIL_STATUS, IncomingEmail } from '../types/supabase';
 
-  const categories = [
-    { name: 'Zählerstandmeldungen', count: 76 },
-    { name: 'Abschlagsänderung', count: 42 },
-    { name: 'Bankverbindung zur Abbuchung', count: 34 },
-    { name: 'Bankverbindung für Guthaben', count: 28 },
-  ];
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title as ChartTitle,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Bar } from 'react-chartjs-2';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ChartTitle, Tooltip, Legend);
+
+// ---- Helpers ---------------------------------------------------------------
+
+const isWithinLastHours = (date: Date | string, hours = 24) =>
+  Date.now() - new Date(date).getTime() <= hours * 60 * 60 * 1000;
+
+const isHidden = (e: IncomingEmail) => e.status === EMAIL_STATUS.AUSGEBLENDET;
+const isUnrecognizable = (e: IncomingEmail) => e.category === 'Sonstiges';
+const isCategorized = (e: IncomingEmail) => !!e.category && e.category !== 'Sonstiges';
+const isCustomerNumberMissing = (e: IncomingEmail) =>
+  e.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER;
+
+type CategoryBucket = { name: string; count: number };
+
+const TZ = 'Europe/Berlin';
+
+function localYMD(date: Date | string, tz = TZ): string {
+  const d = new Date(date);
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '';
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  return `${year}-${month}-${day}`;
+}
+
+function localShortLabel(date: Date, tz = TZ): string {
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone: tz,
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+  }).formatToParts(date);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '';
+  const wd = get('weekday');
+  const day = get('day');
+  const month = get('month');
+  return `${wd} ${day}.${month}.`;
+}
+
+function lastNDays(n = 7, tz = TZ): { keys: string[]; labels: string[] } {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const todayKey = localYMD(now, tz);
+
+  const keys: string[] = [];
+  const labels: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const dt = new Date(Date.now() - i * dayMs);
+    const key = localYMD(dt, tz);
+    keys.push(key);
+    labels.push(localShortLabel(dt, tz));
+  }
+
+  if (keys[keys.length - 1] !== todayKey) {
+    const dt = new Date();
+    keys[keys.length - 1] = todayKey;
+    labels[labels.length - 1] = localShortLabel(dt, tz);
+  }
+
+  return { keys, labels };
+}
+
+// ----------------------------------------------------------------------------
+
+const Dashboard: React.FC = () => {
+  const [emails, setEmails] = useState<IncomingEmail[]>([]);
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>('');
+
+  // Chart category filter (multi-select)
+  const categoriesWithOther = useMemo(
+    () => Array.from(new Set([...allCategories, 'Sonstiges'])),
+    [allCategories]
+  );
+  const [chartCategoryFilter, setChartCategoryFilter] = useState<string[]>([]);
+
+  // Load emails + categories from DB
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError('');
+
+        const [emailData, categoryData] = await Promise.all([
+          getEmailsWithStatus(),
+          getCategories(),
+        ]);
+
+        setEmails(emailData || []);
+        setAllCategories(
+          (categoryData || []).map((c: any) => c.category_name).filter(Boolean)
+        );
+      } catch (err) {
+        console.error('Fehler beim Laden der Dashboard-Daten:', err);
+        setError('Fehler beim Laden der Daten.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  // Initialize chart filter once categories are known (keep selection if already chosen)
+  useEffect(() => {
+    if (chartCategoryFilter.length === 0 && categoriesWithOther.length > 0) {
+      setChartCategoryFilter(categoriesWithOther);
+    }
+  }, [categoriesWithOther, chartCategoryFilter.length]);
+
+  // Exclude hidden mails everywhere
+  const visibleEmails = useMemo(
+    () => emails.filter((e) => !isHidden(e)),
+    [emails]
+  );
+
+  // Stats
+  const newEmails = useMemo(
+    () => visibleEmails.filter((e) => isWithinLastHours(e.received_date, 24)).length,
+    [visibleEmails]
+  );
+  const categorizedCount = useMemo(
+    () => visibleEmails.filter(isCategorized).length,
+    [visibleEmails]
+  );
+  const unrecognizableCount = useMemo(
+    () => visibleEmails.filter(isUnrecognizable).length,
+    [visibleEmails]
+  );
+  const missingCustomerNumberCount = useMemo(
+    () => visibleEmails.filter(isCustomerNumberMissing).length,
+    [visibleEmails]
+  );
+
+  // Category distribution from DB categories + always include "Sonstiges"
+  const categoryBuckets: CategoryBucket[] = useMemo(() => {
+    const buckets = categoriesWithOther.map((catName) => {
+      const count = visibleEmails.reduce((acc, e) => {
+        const cats: string[] =
+          Array.isArray((e as any).all_categories) && (e as any).all_categories.length > 0
+            ? (e as any).all_categories
+            : (e.category ? [e.category] : []);
+        return acc + (cats.includes(catName) ? 1 : 0);
+      }, 0);
+
+      return { name: catName, count };
+    });
+
+    return buckets.sort((a, b) => b.count - a.count);
+  }, [categoriesWithOther, visibleEmails]);
+
+  const maxCategoryCount =
+    categoryBuckets.reduce((m, c) => Math.max(m, c.count), 0) || 1;
+
+  // ---- Last 7 days bar chart ----------------------------------------------
+
+  const { keys: last7Keys, labels: last7Labels } = useMemo(
+    () => lastNDays(7, TZ),
+    []
+  );
+
+  // Emails included in the chart after category filter
+  const chartEmails = useMemo(() => {
+    if (chartCategoryFilter.length === 0) return visibleEmails; // no filter -> all
+    return visibleEmails.filter((e) => {
+      const cats: string[] =
+        Array.isArray((e as any).all_categories) && (e as any).all_categories.length > 0
+          ? (e as any).all_categories
+          : (e.category ? [e.category] : []);
+      return cats.some((c) => chartCategoryFilter.includes(c));
+    });
+  }, [visibleEmails, chartCategoryFilter]);
+
+  // Build count map by Berlin-local day using filtered emails
+  const dayCountsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of chartEmails) {
+      const key = localYMD(e.received_date, TZ);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [chartEmails]);
+
+  const barData = useMemo(() => {
+    const counts = last7Keys.map((k) => dayCountsMap.get(k) || 0);
+    return {
+      labels: last7Labels,
+      datasets: [
+        {
+          label: 'Eingänge',
+          data: counts,
+          backgroundColor: 'rgba(37, 99, 235, 1)',     // blue-600
+          borderColor: 'rgba(37, 99, 235, 1)',
+          hoverBackgroundColor: 'rgba(29, 78, 216, 1)', // blue-700
+          hoverBorderColor: 'rgba(29, 78, 216, 1)',
+          borderWidth: 0,
+        },
+      ],
+    };
+  }, [dayCountsMap, last7Keys, last7Labels]);
+
+  const barOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx: any) => ` ${ctx.parsed.y} E-Mails`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { precision: 0 },
+        },
+      },
+    }),
+    []
+  );
+
+  // UI helpers for the chip/checkbox list
+  const toggleChartCategory = (name: string) => {
+    setChartCategoryFilter((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  };
+
+  const selectAllChartCategories = () => setChartCategoryFilter(categoriesWithOther);
+  const clearChartCategories = () => setChartCategoryFilter([]);
+
+  // --------------------------------------------------------------------------
 
   return (
     <div>
       <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <div key={stat.id} className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className={`rounded-full p-3 mr-4 ${stat.color}`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-gray-500 text-sm">{stat.name}</p>
-                  <h2 className="text-2xl font-bold">{stat.value}</h2>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
 
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Verteilung nach Kategorien</h2>
-        <div className="space-y-4">
-          {categories.map((category, index) => (
-            <div key={index} className="flex items-center">
-              <span className="text-gray-700 w-64">{category.name}</span>
-              <div className="flex-1 bg-gray-200 rounded-full h-4">
-                <div 
-                  className="bg-primary rounded-full h-4" 
-                  style={{ width: `${(category.count / 180) * 100}%` }} 
-                />
-              </div>
-              <span className="ml-4 text-gray-700">{category.count}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Letzte Aktivitäten</h2>
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((item) => (
-              <div key={item} className="flex items-center border-b border-gray-100 pb-3">
-                <CheckCircleIcon className="w-5 h-5 text-green-500 mr-3" />
-                <div>
-                  <p className="text-sm font-medium">E-Mail kategorisiert als Zählerstandmeldung</p>
-                  <p className="text-xs text-gray-500">Vor {item * 5} Minuten</p>
-                </div>
-              </div>
-            ))}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
+          <div className="flex items-center text-red-600">
+            <ExclamationCircleIcon className="w-5 h-5 mr-2" />
+            <span>{error}</span>
           </div>
         </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Hinweise</h2>
-          <ul className="space-y-2">
-            <li className="flex items-start">
-              <ExclamationCircleIcon className="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">5 E-Mails ohne Kundennummer benötigen Ihre Aufmerksamkeit</p>
-            </li>
-            <li className="flex items-start">
-              <ExclamationCircleIcon className="w-5 h-5 text-orange-500 mr-2 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">12 E-Mails konnten nicht automatisch kategorisiert werden</p>
-            </li>
-          </ul>
+      )}
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white rounded-lg shadow p-6 animate-pulse h-24" />
+          ))}
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {[
+              {
+                id: 1,
+                name: 'Neue E-Mails (24h)',
+                value: newEmails.toString(),
+                icon: EnvelopeIcon,
+                color: 'bg-blue-100 text-blue-600',
+              },
+              {
+                id: 2,
+                name: 'Kategorisiert',
+                value: categorizedCount.toString(),
+                icon: TagIcon,
+                color: 'bg-green-100 text-green-600',
+              },
+              {
+                id: 3,
+                name: 'Nicht kategorisierbar',
+                value: unrecognizableCount.toString(),
+                icon: ExclamationCircleIcon,
+                color: 'bg-red-100 text-red-600',
+              },
+              {
+                id: 4,
+                name: 'Kundennummer fehlend',
+                value: missingCustomerNumberCount.toString(),
+                icon: ExclamationCircleIcon,
+                color: 'bg-orange-100 text-orange-600',
+              },
+            ].map((stat) => {
+              const Icon = stat.icon;
+              return (
+                <div key={stat.id} className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center">
+                    <div className={`rounded-full p-3 mr-4 ${stat.color}`}>
+                      <Icon className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500 text-sm">{stat.name}</p>
+                      <h2 className="text-2xl font-bold">{stat.value}</h2>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Last 7 days chart + category filter */}
+          <div className="bg-white rounded-lg shadow p-6 mb-8">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3">
+              <h2 className="text-xl font-semibold">Eingänge – letzte 7 Tage</h2>
+
+              {/* Category filter pills */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-gray-600 mr-1">Kategorien:</span>
+                <button
+                  onClick={selectAllChartCategories}
+                  className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100"
+                >
+                  Alle
+                </button>
+                {categoriesWithOther.map((name) => {
+                  const checked = chartCategoryFilter.includes(name);
+                  return (
+                    <label
+                      key={name}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer ${
+                        checked
+                          ? 'bg-blue-100 border-blue-300 text-blue-800'
+                          : 'bg-gray-100 border-gray-300 text-gray-700'
+                      }`}
+                      title={name}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mr-1 accent-blue-600"
+                        checked={checked}
+                        onChange={() => toggleChartCategory(name)}
+                      />
+                      {name}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="h-64">
+              <Bar data={barData} options={barOptions} />
+            </div>
+          </div>
+
+          {/* Category distribution */}
+          <div className="bg-white rounded-lg shadow p-6 mb-8">
+            <h2 className="text-xl font-semibold mb-4">Verteilung nach Kategorien</h2>
+
+            {categoryBuckets.length === 0 ? (
+              <p className="text-gray-500">Keine Kategorien vorhanden.</p>
+            ) : (
+              <div className="space-y-4">
+                {categoryBuckets.map((category) => (
+                  <div key={category.name} className="flex items-center">
+                    <span className="text-gray-700 w-64 truncate" title={category.name}>
+                      {category.name}
+                    </span>
+                    <div className="flex-1 bg-gray-200 rounded-full h-4">
+                      <div
+                        className="bg-primary rounded-full h-4"
+                        style={{ width: `${(category.count / maxCategoryCount) * 100}%` }}
+                      />
+                    </div>
+                    <span className="ml-4 text-gray-700">{category.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

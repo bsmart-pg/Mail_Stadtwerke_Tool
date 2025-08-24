@@ -152,6 +152,21 @@ class AnalysisService {
     }
   }
 
+  async startManualForwarding(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
+    try {
+
+      console.log(`Start Weiterleitung für E-Mail ${emailId}`);
+
+      const email = await GraphService.getEmailContent(messageId);
+     
+      console.log(`Starte Manuellen Weiterleitungsprozess`);
+      await this.forwardManualEmailWithTags(email, 1,1 , forwardingEmail);
+
+    } catch (error) {
+      console.error(`Fehler bei Weiterleitung für E-Mail ${emailId}:`, error);
+    }
+  }
+
   /**
    * Schritt 1: Analysiert den E-Mail-Text
    */
@@ -655,6 +670,65 @@ class AnalysisService {
         subject: forwardSubject,
         customerNumber: combination.customerNumber,
         category: JSON.stringify(combination.category),
+        index: index,
+        total: total,
+        recipients: targetRecipients
+      });
+      
+      if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
+        console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
+        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments);
+      }
+      else{
+        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients);
+      }
+      
+      
+      console.log(`✅ Weiterleitung ${index}/${total} erfolgreich an ${targetRecipients.join(', ')} gesendet`);
+
+    } catch (error) {
+      console.error('Fehler beim Erstellen der Weiterleitung:', error);
+      throw error;
+    }
+  }
+
+  private async forwardManualEmailWithTags(
+    email: any, 
+    index: number, 
+    total: number,
+    forwardingEmail: string
+  ): Promise<void> {
+    console.log("following combo")
+    try {
+      // Erstelle den Weiterleitungsbetreff mit Tags
+      let forwardSubject = ` FWD: ${email.subject || 'Kein Betreff'}`;
+
+      // Erstelle den Weiterleitungsinhalt
+      let forwardBody = `<p><strong>Ursprünglicher Absender:</strong> ${email.from?.emailAddress?.address}</p>`;
+      forwardBody += `<p><strong>Empfangen am:</strong> ${new Date(email.receivedDateTime).toLocaleString('de-DE')}</p>`;
+      forwardBody += `</div>`;
+      forwardBody += `<h4 style="color: #374151; margin-top: 25px;">URSPRÜNGLICHE NACHRICHT</h4>`;
+      forwardBody += `<div style="border-left: 4px solid #d1d5db; padding-left: 15px; margin-left: 10px;">`;
+      
+      // Füge den ursprünglichen Inhalt hinzu
+      if (email.body?.contentType === 'html') {
+        forwardBody += email.body.content;
+      } else {
+        // Konvertiere Text zu HTML
+        const textContent = email.body?.content || '';
+        forwardBody += `<pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${textContent}</pre>`;
+      }
+      
+      forwardBody += `</div></div>`;
+
+      // Konfigurierbare Ziel-E-Mail-Adressen (später aus Einstellungen laden)
+      const targetRecipients = [
+        forwardingEmail // Ziel-E-Mail-Adresse für Weiterleitungen
+      ];
+      
+      // Sende die tatsächliche Weiterleitung
+      console.log('Sende Weiterleitung:', {
+        subject: forwardSubject,
         index: index,
         total: total,
         recipients: targetRecipients
