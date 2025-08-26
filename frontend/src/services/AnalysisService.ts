@@ -629,7 +629,7 @@ class AnalysisService {
       if (combination.customerNumber) {
         forwardSubject += `${combination.customerNumber}_`;
       }
-      forwardSubject += combination.category.join("/");
+      forwardSubject += combination.category.join("+");
       if (total > 1) {
         forwardSubject += ` [${index}/${total}]`;
       }
