@@ -1255,7 +1255,6 @@ const Emails: React.FC = () => {
                               </div>
                             )}
                           </td>
-
                           <td className="px-6 py-4 whitespace-nowrap">
                             {email.category ? (
                               <div className="space-y-1">

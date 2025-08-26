@@ -209,9 +209,9 @@ class AnalysisService {
       console.error(`Fehler bei Text-Analyse für E-Mail ${email.id}:`, error);
       return {
         customerNumber: null,
-        category: null,
+        category: "Sonstiges",
         allCustomerNumbers: [],
-        allCategories: [],
+        allCategories: ["Sonstiges"],
         extractedInformation: [],
         timestamp: new Date().toISOString()
       };
@@ -398,7 +398,7 @@ class AnalysisService {
       console.error(`Fehler bei Bild-Analyse für E-Mail ${email.id}:`, error);
       return {
         customerNumber: null,
-        category: null,
+        category: "Sonstiges",
         imageCount: 0,
         timestamp: new Date().toISOString()
       };
