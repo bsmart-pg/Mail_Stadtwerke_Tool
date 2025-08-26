@@ -668,20 +668,37 @@ const Emails: React.FC = () => {
     (filterCategory === 'ohne-kundennummer' && !email.customer_number) ||
     email.category === filterCategory ||
     (email.all_categories && email.all_categories.includes(filterCategory));
-  
-  let matchesStatus
-  if (filterStatus === "Unbearbeitet") {
-    matchesStatus = (email.status !== "Weitergeleitet" && email.status !== "kundennummer-angefragt");
+
+  const isAusgeblendet = email.status === EMAIL_STATUS.AUSGEBLENDET;
+
+  let matchesStatus;
+  switch (filterStatus) {
+    case 'Unbearbeitet':
+      // everything except Weitergeleitet, kundennummer-angefragt, and Ausgeblendet
+      matchesStatus =
+        !isAusgeblendet &&
+        email.status !== 'Weitergeleitet' &&
+        email.status !== 'kundennummer-angefragt';
+      break;
+
+    case 'alle':
+      // all statuses except Ausgeblendet
+      matchesStatus = !isAusgeblendet;
+      break;
+
+    case EMAIL_STATUS.AUSGEBLENDET:
+      // only Ausgeblendet
+      matchesStatus = isAusgeblendet;
+      break;
+
+    default:
+      // exact match, but exclude Ausgeblendet unless explicitly selected above
+      matchesStatus = email.status === filterStatus && !isAusgeblendet;
   }
-  else {
-    matchesStatus =
-      filterStatus === 'alle' 
-      ? email.status !== EMAIL_STATUS.AUSGEBLENDET
-      : email.status === filterStatus;
-  }
-  
+
   return matchesSearch && matchesCategory && matchesStatus;
 });
+
 
   // Status-Icon
   const getStatusIcon = (status: string, category?: string) => {
@@ -954,7 +971,7 @@ const Emails: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container max-w-none mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-8">E-Mails</h1>
       
       {!outlookConnected ? (
@@ -972,7 +989,7 @@ const Emails: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="bg-white rounded-lg shadow p-6 mb-8">
+          <div className="bg-white w-full rounded-lg shadow p-6 mb-8">
             {/* Anzeige des angemeldeten Benutzers */}
             <div className="bg-green-50 border border-green-200 rounded-md p-4 mb-6">
               <div className="flex items-center">
@@ -1060,19 +1077,21 @@ const Emails: React.FC = () => {
                     <thead className="bg-gray-50">
                       <tr>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            <label htmlFor="status-filter" className="mr-2 text-gray-600">Status:</label>
-                            <select
-                              id="status-filter"
-                              className="w-40 truncate border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                              value={filterStatus}
-                              onChange={(e) => setFilterStatus(e.target.value)}
-                            >
-                              {statusOptions.map((status) => (
-                                <option key={status.value} value={status.value}>
-                                  {status.label}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="flex flex-col">
+                              <label htmlFor="status-filter" className="mr-2 text-gray-600">Status:</label>
+                              <select
+                                id="status-filter"
+                                className="w-16 truncate border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                              >
+                                {statusOptions.map((status) => (
+                                  <option key={status.value} value={status.value}>
+                                    {status.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Betreff
@@ -1087,20 +1106,22 @@ const Emails: React.FC = () => {
                           Kundennummer
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          <label htmlFor="category-filter" className="mr-2 text-gray-600">Kategorie:</label>
-                          <select
-                            id="category-filter"
-                            className="w-40 truncate border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                            value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
-                          >
-                            {
-                              categories.map((cat) => (
-                                <option value={cat}>{cat}</option>
-                              ))
-                            }
-                            <option value="alle">Alle E-Mails</option>
-                          </select>
+                          <div className="flex flex-col">
+                            <label htmlFor="category-filter" className="mr-2 text-gray-600">Kategorie:</label>
+                            <select
+                              id="category-filter"
+                              className="w-40 truncate border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                              value={filterCategory}
+                              onChange={(e) => setFilterCategory(e.target.value)}
+                            >
+                              {
+                                categories.map((cat) => (
+                                  <option value={cat}>{cat}</option>
+                                ))
+                              }
+                              <option value="alle">Alle E-Mails</option>
+                            </select>
+                          </div>
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Aktionen
@@ -1118,8 +1139,8 @@ const Emails: React.FC = () => {
                               {getStatusIcon(email.status, email.category === null ? undefined : email.category)}
                             </div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900"  onClick={() => handleEmailClick(email.id, email.message_id)}>{email.subject}</div>
+                          <td className="px-6 py-4 whitespace-nowrap w-60 max-w-60">
+                            <div className="text-sm font-medium text-gray-900 whitespace-normal break-words"  onClick={() => handleEmailClick(email.id, email.message_id)}>{email.subject}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500">{email.sender}</div>
@@ -1311,129 +1332,132 @@ const Emails: React.FC = () => {
 
                           {/* Aktionen */}
                           <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
-                            {(email.customer_number && email.category != "Sonstiges") && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleForwardClick(email.id);
-                                }}
-                                className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                              >
-                                Weiterleitung auslösen
-                              </button>
-                            )}
+                            <div className="flex flex-col items-center space-y-2">
+                              {(email.customer_number && email.category != "Sonstiges") && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleForwardClick(email.id);
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                  Weiterleitung auslösen
+                                </button>
+                              )}
 
-                            {email.status === EMAIL_STATUS.WEITERGELEITET && (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
-                                Weiterleitung gesendet
-                              </span>
-                            )}
-                            
-                            {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  manualSendReply(email.id);
-                                }}
-                                className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                              >
-                                Anfrage senden
-                              </button>
-                            )}
-                            {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
-                                Kundennummer angefragt
-                              </span>
-                            )}
-                            {sentReplies[email.id] && email.status !== EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
-                                Antwort gesendet
-                              </span>
-                            )}
+                              {email.status === EMAIL_STATUS.WEITERGELEITET && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                                  Weiterleitung gesendet
+                                </span>
+                              )}
+                              
+                              {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    manualSendReply(email.id);
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                  Anfrage senden
+                                </button>
+                              )}
+                              {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                                  Kundennummer angefragt
+                                </span>
+                              )}
+                              {sentReplies[email.id] && email.status !== EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
+                                  Antwort gesendet
+                                </span>
+                              )}
 
-                            {/* Hide / Unhide toggle */}
-                            {email.status === EMAIL_STATUS.AUSGEBLENDET ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const nextStatus = !email.customer_number
-                                    ? EMAIL_STATUS.FEHLENDE_KUNDENNUMMER
-                                    : (email.category ? EMAIL_STATUS.KATEGORISIERT : EMAIL_STATUS.UNKATEGORISIERT);
+                              {/* Hide / Unhide toggle */}
+                              {email.status === EMAIL_STATUS.AUSGEBLENDET ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const nextStatus = !email.customer_number
+                                      ? EMAIL_STATUS.FEHLENDE_KUNDENNUMMER
+                                      : (email.category ? EMAIL_STATUS.KATEGORISIERT : EMAIL_STATUS.UNKATEGORISIERT);
 
-                                  handleStatusUpdate(email.id, nextStatus);
-                                }}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
-                                title="E-Mail einblenden"
-                              >
-                                Einblenden
-                              </button>
-                            ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStatusUpdate(email.id, EMAIL_STATUS.AUSGEBLENDET);
-                                }}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
-                                title="E-Mail ausblenden"
-                              >
-                                Ausblenden
-                              </button>
-                            )}
-
-                            {/* NEW: Manuelle Weiterleitung */}
-                            <div className="relative inline-block manual-forward-wrapper">
-                              {openManualForwardEmailId === email.id ? (
-                                <div className="absolute z-10 top-8 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-64">
-                                  <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
-                                  <input
-                                    autoFocus
-                                    type="email"
-                                    placeholder="name@example.com"
-                                    value={manualForwardRecipient}
-                                    onChange={(e) => setManualForwardRecipient(e.target.value)}
-                                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                                    onKeyDown={async (e) => {
-                                      if (e.key === 'Enter') {
-                                        await manualForwardEmails(email.id, manualForwardRecipient);
-                                        await loadEmails();
-                                      }
-                                      if (e.key === 'Escape') {
-                                        setOpenManualForwardEmailId(null);
-                                        setManualForwardRecipient('');
-                                      }
-                                    }}
-                                  />
-                                  <div className="flex justify-end space-x-2">
-                                    <button
-                                      className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                                      onClick={() => { setOpenManualForwardEmailId(null); setManualForwardRecipient(''); }}
-                                    >
-                                      Abbrechen
-                                    </button>
-                                    <button
-                                      className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                      onClick={async () => {
-                                        await manualForwardEmails(email.id, manualForwardRecipient);
-                                        await loadEmails();
-                                      }}
-                                    >
-                                      Senden
-                                    </button>
-                                  </div>
-                                </div>
+                                    handleStatusUpdate(email.id, nextStatus);
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                  title="E-Mail einblenden"
+                                >
+                                  Einblenden
+                                </button>
                               ) : (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setOpenManualForwardEmailId(email.id);
-                                    setManualForwardRecipient('');
+                                    handleStatusUpdate(email.id, EMAIL_STATUS.AUSGEBLENDET);
                                   }}
-                                  className="inline-flex items-center px-3 py-1 mr-2 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
-                                  title="Manuelle Weiterleitung"
+                                  className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                  title="E-Mail ausblenden"
                                 >
-                                  Manuelle Weiterleitung
+                                  Ausblenden
                                 </button>
                               )}
+
+                              {/* NEW: Manuelle Weiterleitung */}
+                              <div className="relative inline-block manual-forward-wrapper">
+                                
+                                {openManualForwardEmailId === email.id ? (
+                                  <div className="absolute z-10 top-8 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-64">
+                                    <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
+                                    <input
+                                      autoFocus
+                                      type="email"
+                                      placeholder="name@example.com"
+                                      value={manualForwardRecipient}
+                                      onChange={(e) => setManualForwardRecipient(e.target.value)}
+                                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                      onKeyDown={async (e) => {
+                                        if (e.key === 'Enter') {
+                                          await manualForwardEmails(email.id, manualForwardRecipient);
+                                          await loadEmails();
+                                        }
+                                        if (e.key === 'Escape') {
+                                          setOpenManualForwardEmailId(null);
+                                          setManualForwardRecipient('');
+                                        }
+                                      }}
+                                    />
+                                    <div className="flex justify-end space-x-2">
+                                      <button
+                                        className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                        onClick={() => { setOpenManualForwardEmailId(null); setManualForwardRecipient(''); }}
+                                      >
+                                        Abbrechen
+                                      </button>
+                                      <button
+                                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                        onClick={async () => {
+                                          await manualForwardEmails(email.id, manualForwardRecipient);
+                                          await loadEmails();
+                                        }}
+                                      >
+                                        Senden
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenManualForwardEmailId(email.id);
+                                      setManualForwardRecipient('');
+                                    }}
+                                    className="inline-flex items-center px-3 py-1 mr-2 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                    title="Manuelle Weiterleitung"
+                                  >
+                                    Manuelle Weiterleitung
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>

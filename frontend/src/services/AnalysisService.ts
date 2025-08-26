@@ -625,10 +625,11 @@ class AnalysisService {
     console.log(combination)
     try {
       // Erstelle den Weiterleitungsbetreff mit Tags
-      let forwardSubject = JSON.stringify(combination.category);
+      let forwardSubject = ``
       if (combination.customerNumber) {
-        forwardSubject += ` [KD: ${combination.customerNumber}]`;
+        forwardSubject += `${combination.customerNumber}_`;
       }
+      forwardSubject += combination.category.join("/");
       if (total > 1) {
         forwardSubject += ` [${index}/${total}]`;
       }
