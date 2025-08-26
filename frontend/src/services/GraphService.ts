@@ -111,8 +111,14 @@ export const GraphService = {
       }
 
       const syncStart = new Date(GraphService.syncWindowStartUtc!);
-      const keepIfNewer = (m: any) =>
-        m?.receivedDateTime && new Date(m.receivedDateTime) >= syncStart;
+      const keepIfNewer = (m: any) => {
+        if(m.hasOwnProperty('receivedDateTime')){
+          return (new Date(m.receivedDateTime) >= syncStart);
+        } else {
+          return true;
+        }
+      }
+        
 
       let items: any[] = [];
       let url: string | null = GraphService.deltaLink;
@@ -120,6 +126,7 @@ export const GraphService = {
       while (true) {
         let res;
         if (url) {
+          console.log("if(url) "+ url)
           res = await client.get(url);
         } else {
           // CHANGED: same filter, but now driven by env/ensureSyncStart value
@@ -130,8 +137,9 @@ export const GraphService = {
           console.log('Initial delta GET:', firstUrl);
           res = await client.get(firstUrl);
         }
-
+        console.log(res)
         const data = res.data ?? {};
+        console.log(data)
         const batch = Array.isArray(data.value) ? data.value : [];
         const filtered = batch.filter(keepIfNewer);
         items = items.concat(filtered);

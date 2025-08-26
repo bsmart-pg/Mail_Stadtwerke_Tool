@@ -135,7 +135,6 @@ const Emails: React.FC = () => {
     setOpenDropdownEmailId(null);
 
     handleAddCategory(email, category);
-    await loadEmails()
   };
 
   const handleAddCategory = async (email: DisplayEmail, cat: string) => {
@@ -167,7 +166,6 @@ const Emails: React.FC = () => {
       );
 
       setOpenDropdownEmailId(null);
-      await loadEmails();
     } catch (err) {
       console.error("Fehler beim Hinzufügen der Kategorie:", err);
     }
@@ -202,7 +200,6 @@ const Emails: React.FC = () => {
         )
       );
 
-      await loadEmails();
     } catch (err) {
       console.error("Fehler beim Entfernen der Kategorie:", err);
     }
@@ -244,7 +241,6 @@ const Emails: React.FC = () => {
 
     setOpenNumberEditorEmailId(null);
     setNewCustomerNumber('');
-    await loadEmails();
   };
 
   const handleRemoveCustomerNumber = async (email: DisplayEmail, index: number) => {
@@ -267,14 +263,11 @@ const Emails: React.FC = () => {
           : e
       )
     );
-
-    await loadEmails();
   };
 
 
   const handleForwardClick = async (emailId: string) => {
     await forwardEmails(emailId);
-    await loadEmails()
   };
   
   // Einstellungen laden
@@ -379,10 +372,6 @@ const Emails: React.FC = () => {
             em.id !== emailId
           )
         );
-        await loadEmails()
-      }
-      else{
-        await loadEmails()
       }
     }
   };
@@ -390,7 +379,6 @@ const Emails: React.FC = () => {
   const handleCloseEmailDetail = async() => {
     setSelectedEmail(null);
     setSelectedMessageId(null);
-    await loadEmails()
   };
   
   const handleStatusUpdate = async (emailId: string, newStatus: EmailStatus) => {
@@ -548,18 +536,27 @@ const Emails: React.FC = () => {
       setError('');
       
       const existingEmails = await getEmailsWithStatus();
+      console.log(existingEmails)
       const existingEmailsMap = new Map(
         existingEmails.map(email => [email.message_id, email])
       );
       
       const outlookEmails = await GraphService.getInboxMails(50);
+      console.log("outlookEmails")
+      console.log(outlookEmails)
       const deletedEmailIds= outlookEmails.filter(
-        (em: object) => Object.prototype.hasOwnProperty.call(em, '@removed')
+        (em: object) => em.hasOwnProperty('@removed')
       ).map((elem: any) => elem.id)
 
+      console.log("deletedEmailIds")
+      console.log(deletedEmailIds)
+
       const newEmails = outlookEmails.filter(
-        (em: object) => !Object.prototype.hasOwnProperty.call(em, '@removed')
+        (em: object) => !em.hasOwnProperty('@removed')
       )
+
+      console.log("newEmails")
+      console.log(newEmails)
 
       for (const delId of deletedEmailIds){
         const email = await getEmailByMessageId(delId)
@@ -821,7 +818,6 @@ const Emails: React.FC = () => {
       
       setSentReplies(prev => ({...prev, [emailToEdit.id]: true}));
       alert('E-Mail wurde erfolgreich gesendet.');
-      await loadEmails();
     } catch (error) {
       console.error('Fehler beim Aktualisieren des E-Mail-Status:', error);
       alert('E-Mail wurde gesendet, aber Status konnte nicht aktualisiert werden.');
