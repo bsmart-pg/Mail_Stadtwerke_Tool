@@ -241,7 +241,8 @@ export const GraphService = {
     subject: string,
     body: string,
     toRecipients: string[],
-    mailattachments: Array<Object> = []
+    mailattachments: Array<Object> = [],
+    replyAdresses: string[] = []
   ) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
@@ -273,26 +274,52 @@ export const GraphService = {
         </body>
         </html>
       `;
-
-      const mailBody = {
-        message: {
-          subject,
-          body: {
-            contentType: 'html',
-            content: htmlBody,
+      let mailBody
+      if (replyAdresses.length > 0) {
+        mailBody = {
+          message: {
+            subject,
+            body: {
+              contentType: 'html',
+              content: htmlBody,
+            },
+            toRecipients: toRecipients.map((recipient) => ({
+              emailAddress: { address: recipient },
+            })),
+            replyTo: replyAdresses.map((replyAddress) => ({
+              emailAddress: { address: replyAddress },
+            })),
+            attachments: mailattachments,
+            importance: 'normal',
+            internetMessageHeaders: [
+              { name: 'X-Custom-Header', value: 'Stadtwerke-Kundenservice' },
+              { name: 'X-Priority', value: '3' },
+            ],
           },
-          toRecipients: toRecipients.map((recipient) => ({
-            emailAddress: { address: recipient },
-          })),
-          attachments: mailattachments,
-          importance: 'normal',
-          internetMessageHeaders: [
-            { name: 'X-Custom-Header', value: 'Stadtwerke-Kundenservice' },
-            { name: 'X-Priority', value: '3' },
-          ],
-        },
-        saveToSentItems: true,
-      };
+          saveToSentItems: true,
+        };
+      } else {
+        mailBody = {
+          message: {
+            subject,
+            body: {
+              contentType: 'html',
+              content: htmlBody,
+            },
+            toRecipients: toRecipients.map((recipient) => ({
+              emailAddress: { address: recipient },
+            })),
+            attachments: mailattachments,
+            importance: 'normal',
+            internetMessageHeaders: [
+              { name: 'X-Custom-Header', value: 'Stadtwerke-Kundenservice' },
+              { name: 'X-Priority', value: '3' },
+            ],
+          },
+          saveToSentItems: true,
+        };
+      }
+      
 
       console.log('Sende E-Mail an:', toRecipients);
       const response = await client.post(

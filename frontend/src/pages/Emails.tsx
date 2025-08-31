@@ -1266,9 +1266,7 @@ const Emails: React.FC = () => {
                                         {category}
                                         <button
                                           onClick={() => {
-                                            if (window.confirm(`Möchten Sie die Kategorie "${category}" wirklich entfernen?`)) {
-                                              handleRemove(email,index);
-                                            }
+                                            handleRemove(email,index);
                                           }}
                                           className="ml-1 text-green-700 hover:text-red-600"
                                         >
@@ -1319,16 +1317,42 @@ const Emails: React.FC = () => {
                                 Wird analysiert...
                               </span>
                             ) : (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                Nicht kategorisiert
-                              </span>
+                              <div>
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                  Nicht kategorisiert
+                                </span>
+                                <div className="relative inline-block dropdown-wrapper">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
+                                      }}
+                                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                                    >
+                                      <PlusIcon className="mr-1 h-3 w-3" />
+                                    </button>
+                                      {openDropdownEmailId === email.id && (
+                                        <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
+                                          {categories.filter((item) => !email.all_categories?.includes(item)).map((cat) => (
+                                            <div
+                                              key={cat}
+                                              onClick={() => handleCategorySelect(email, cat)}
+                                              className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
+                                            >
+                                              {cat}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                  </div>
+                              </div>
                             )}
                           </td>
 
                           {/* Aktionen */}
                           <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col items-center space-y-2">
-                              {(email.customer_number && email.category != "Sonstiges") && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
+                              {(email.customer_number && email.category != "Sonstiges" && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();

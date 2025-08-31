@@ -633,7 +633,9 @@ class AnalysisService {
       if (total > 1) {
         forwardSubject += ` [${index}/${total}]`;
       }
-      forwardSubject += ` FWD: ${email.subject || 'Kein Betreff'}`;
+      if (forwardSubject === ``) {
+        forwardSubject += 'Kein Betreff'
+      }
 
       // Erstelle den Weiterleitungsinhalt
       let forwardBody = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">`;
@@ -645,7 +647,7 @@ class AnalysisService {
         forwardBody += `<p><strong>Weiterleitung:</strong> ${index} von ${total}</p>`;
       }
       forwardBody += `<p><strong>Ursprünglicher Absender:</strong> ${email.from?.emailAddress?.address}</p>`;
-      forwardBody += `<p><strong>Empfangen am:</strong> ${new Date(email.receivedDateTime).toLocaleString('de-DE')}</p>`;
+      forwardBody += `<p><strong>Ursprünglicher Betreff:</strong> ${email.subject || 'Kein Betreff'}</p>`;
       forwardBody += `</div>`;
       forwardBody += `<h4 style="color: #374151; margin-top: 25px;">URSPRÜNGLICHE NACHRICHT</h4>`;
       forwardBody += `<div style="border-left: 4px solid #d1d5db; padding-left: 15px; margin-left: 10px;">`;
@@ -678,10 +680,10 @@ class AnalysisService {
       
       if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
         console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
-        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments);
+        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments,[email.from?.emailAddress?.address]);
       }
       else{
-        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients);
+        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, undefined ,[email.from?.emailAddress?.address]);
       }
       
       
