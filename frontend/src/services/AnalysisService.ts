@@ -18,6 +18,94 @@ interface ImageAnalysisResult {
   timestamp: string;
 }
 
+async function buildForwardableContent(email: any): Promise<{ html: string; attachments: any[] }> {
+  // 1) Start with the original HTML (or text -> HTML)
+  let html =
+    email?.body?.contentType === 'html'
+      ? String(email.body.content || '')
+      : `<pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${String(email?.body?.content || '')}</pre>`;
+
+  const attachmentsOut: any[] = [];
+  const atts: any[] = Array.isArray(email.attachments) ? email.attachments : [];
+
+  // Build a map of the various original forms of contentId -> normalizedId we will use
+  // We normalize to a simple token with no angle brackets, no leading "cid:"
+  const normId = (s: string) =>
+    String(s || '')
+      .trim()
+      .replace(/^cid:/i, '')
+      .replace(/^</, '')
+      .replace(/>$/, '');
+
+  // Collect replacements to apply to HTML
+  const replacements: Array<{ from: RegExp; to: string }> = [];
+
+  for (const att of atts) {
+    // Only FileAttachment (images or other files). ItemAttachment would need extra handling.
+    const contentType = String(att.contentType || '').toLowerCase();
+    const isImage = contentType.startsWith('image/');
+    const originalContentId = normId(att.contentId || '');
+
+    // Ensure we have base64 contentBytes
+    let contentBytes: string | null = att.contentBytes || null;
+    if (!contentBytes && att.id) {
+      try {
+        const buf = await GraphService.getAttachmentContent(email.id, att.id);
+        contentBytes = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      } catch {
+        // If we can't fetch, skip this attachment
+        continue;
+      }
+    }
+    if (!contentBytes) continue;
+
+    // Prepare output attachment in Graph format
+    const out = {
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: att.name || 'attachment',
+      contentType: att.contentType || 'application/octet-stream',
+      isInline: false as boolean,
+      contentId: undefined as string | undefined,
+      contentBytes,
+    };
+
+    if (isImage && originalContentId) {
+      // Mark as inline and set contentId
+      out.isInline = true;
+      out.contentId = originalContentId;
+
+      // Create regexes to rewrite all variants found in the HTML body to our normalized id:
+      // - cid:<id>
+      // - cid:&lt;id&gt; (HTML-escaped)
+      // - cid:<id> with angle brackets
+      // - Outlook variants like image001.png@01D9...
+      const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const variants = [
+        new RegExp(`cid:${esc(originalContentId)}`, 'gi'),
+        new RegExp(`cid:&lt;${esc(originalContentId)}&gt;`, 'gi'),
+      ];
+
+      // If the attachment had angle-bracket cid in source, rewrite that too
+      variants.push(new RegExp(`cid:<${esc(originalContentId)}>`, 'gi'));
+
+      // Register replacements
+      for (const v of variants) {
+        replacements.push({ from: v, to: `cid:${originalContentId}` });
+      }
+    }
+
+    attachmentsOut.push(out);
+  }
+
+  // Apply the replacements
+  for (const { from, to } of replacements) {
+    html = html.replace(from, to);
+  }
+
+  return { html, attachments: attachmentsOut };
+}
+
+
 class AnalysisService {
   private analysisQueue: Set<string> = new Set();
 
@@ -638,30 +726,33 @@ class AnalysisService {
       }
 
       // Erstelle den Weiterleitungsinhalt
-      let forwardBody = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">`;
-      forwardBody += `<h3 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">AUTOMATISCHE WEITERLEITUNG</h3>`;
-      forwardBody += `<div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0;">`;
-      forwardBody += `<p><strong>Kategorie:</strong> ${JSON.stringify(combination.category)}</p>`;
-      forwardBody += `<p><strong>Kundennummer:</strong> ${combination.customerNumber || 'Nicht gefunden'}</p>`;
+      let header = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">`;
+      header += `<h3 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">AUTOMATISCHE WEITERLEITUNG</h3>`;
+      header += `<div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0;">`;
+      header += `<p><strong>Kategorie:</strong> ${JSON.stringify(combination.category)}</p>`;
+      header += `<p><strong>Kundennummer:</strong> ${combination.customerNumber || 'Nicht gefunden'}</p>`;
       if (total > 1) {
-        forwardBody += `<p><strong>Weiterleitung:</strong> ${index} von ${total}</p>`;
+        header += `<p><strong>Weiterleitung:</strong> ${index} von ${total}</p>`;
       }
-      forwardBody += `<p><strong>Ursprünglicher Absender:</strong> ${email.from?.emailAddress?.address}</p>`;
-      forwardBody += `<p><strong>Ursprünglicher Betreff:</strong> ${email.subject || 'Kein Betreff'}</p>`;
-      forwardBody += `</div>`;
-      forwardBody += `<h4 style="color: #374151; margin-top: 25px;">URSPRÜNGLICHE NACHRICHT</h4>`;
-      forwardBody += `<div style="border-left: 4px solid #d1d5db; padding-left: 15px; margin-left: 10px;">`;
+      header += `<p><strong>Ursprünglicher Absender:</strong> ${email.from?.emailAddress?.address}</p>`;
+      header += `<p><strong>Ursprünglicher Betreff:</strong> ${email.subject || 'Kein Betreff'}</p>`;
+      header += `</div>`;
+      header += `<h4 style="color: #374151; margin-top: 25px;">URSPRÜNGLICHE NACHRICHT</h4>`;
+      header += `<div style="border-left: 4px solid #d1d5db; padding-left: 15px; margin-left: 10px;">`;
       
-      // Füge den ursprünglichen Inhalt hinzu
-      if (email.body?.contentType === 'html') {
-        forwardBody += email.body.content;
-      } else {
-        // Konvertiere Text zu HTML
-        const textContent = email.body?.content || '';
-        forwardBody += `<pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${textContent}</pre>`;
-      }
+      // // Füge den ursprünglichen Inhalt hinzu
+      // if (email.body?.contentType === 'html') {
+      //   forwardBody += email.body.content;
+      // } else {
+      //   // Konvertiere Text zu HTML
+      //   const textContent = email.body?.content || '';
+      //   forwardBody += `<pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${textContent}</pre>`;
+      // }
       
-      forwardBody += `</div></div>`;
+      // forwardBody += `</div></div>`;
+      const { html: originalHtmlWithFixedCids, attachments } = await buildForwardableContent(email);
+
+      const forwardBody = `${header}${originalHtmlWithFixedCids}</div></div>`;
 
       // Konfigurierbare Ziel-E-Mail-Adressen (später aus Einstellungen laden)
       const targetRecipients = [
@@ -678,14 +769,21 @@ class AnalysisService {
         recipients: targetRecipients
       });
       
-      if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
-        console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
-        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments,[email.from?.emailAddress?.address]);
-      }
-      else{
-        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, undefined ,[email.from?.emailAddress?.address]);
-      }
-      
+      // if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
+      //   console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
+      //   await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments,[email.from?.emailAddress?.address]);
+      // }
+      // else{
+      //   await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, undefined ,[email.from?.emailAddress?.address]);
+      // }
+      // Send email WITH attachments (critical!)
+      await GraphService.sendEmail(
+        forwardSubject,
+        forwardBody,
+        [forwardingEmail],
+        attachments,                                  // ✅ include inline + regular attachments
+        [email.from?.emailAddress?.address].filter(Boolean) as string[]
+      );
       
       console.log(`✅ Weiterleitung ${index}/${total} erfolgreich an ${targetRecipients.join(', ')} gesendet`);
 
