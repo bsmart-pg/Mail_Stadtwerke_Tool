@@ -133,7 +133,8 @@ export const GraphService = {
           const filter = encodeURIComponent(
             `receivedDateTime ge ${GraphService.syncWindowStartUtc}`
           );
-          const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
+          // const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
+          const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}`;
           console.log('Initial delta GET:', firstUrl);
           res = await client.get(firstUrl);
         }
@@ -141,8 +142,10 @@ export const GraphService = {
         const data = res.data ?? {};
         console.log(data)
         const batch = Array.isArray(data.value) ? data.value : [];
-        const filtered = batch.filter(keepIfNewer);
-        items = items.concat(filtered);
+        // const filtered = batch.filter(keepIfNewer);
+        // items = items.concat(filtered);
+        // const filtered = batch.filter(keepIfNewer);
+        items = items.concat(batch);
 
         if (data['@odata.nextLink']) {
           url = data['@odata.nextLink'];
