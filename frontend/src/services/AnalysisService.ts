@@ -18,6 +18,19 @@ interface ImageAnalysisResult {
   timestamp: string;
 }
 
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const chunkSize = 0x8000; // 32KB
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(
+      null,
+      bytes.subarray(i, i + chunkSize) as unknown as number[]
+    );
+  }
+  return btoa(binary);
+}
+
 async function buildForwardableContent(email: any): Promise<{ html: string; attachments: any[] }> {
   // 1) Start with the original HTML (or text -> HTML)
   let html =
@@ -51,7 +64,8 @@ async function buildForwardableContent(email: any): Promise<{ html: string; atta
     if (!contentBytes && att.id) {
       try {
         const buf = await GraphService.getAttachmentContent(email.id, att.id);
-        contentBytes = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        contentBytes = arrayBufferToBase64(buf); 
+        // contentBytes = btoa(String.fromCharCode(...new Uint8Array(buf)));
       } catch {
         // If we can't fetch, skip this attachment
         continue;
@@ -133,7 +147,8 @@ class AnalysisService {
             try {
               console.log(`Lade base64 für Bild-Attachment: ${attachment.name}`);
               const buffer = await GraphService.getAttachmentContent(fullEmail.id, attachment.id);
-              const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+              // const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+              const base64 = arrayBufferToBase64(buffer);
               attachment.contentBytes = base64;
               console.log(`Base64 erfolgreich geladen für ${attachment.name}, Größe: ${base64.length} Zeichen`);
             } catch (error) {
@@ -360,7 +375,8 @@ class AnalysisService {
             } else if (attachment.id) {
               console.log(`Lade base64-Inhalt für ${attachment.name}`);
               const buffer = await GraphService.getAttachmentContent(email.id, attachment.id);
-              base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+              base64 = arrayBufferToBase64(buffer);
+              // base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
             } else {
               console.warn(`Bild-Attachment ${attachment.name} hat keine ID und keine base64-Daten - überspringe`);
               continue;
