@@ -17,6 +17,36 @@ if (!baseURL) {
 }
 
 
+
+
+// Normalize/clean a Content-ID value
+const cleanCid = (cid?: string) =>
+  (cid || '')
+    .trim()
+    .replace(/^</, '')
+    .replace(/>$/, '')
+    .replace(/^cid:/i, '');
+
+// Convert base64 (Graph contentBytes) → Blob
+const base64ToBlob = (b64: string, type = 'application/octet-stream') => {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type });
+};
+
+// Replace only cid: src attributes (case-insensitive, single/double quotes)
+const replaceCidSrcs = (html: string, lookup: Record<string, string>) =>
+  html.replace(/\s(src)\s*=\s*(['"])cid:([^'"]+)\2/gi, (m, attr, quote, rawCid) => {
+    const key = cleanCid(rawCid);
+    const url =
+      lookup[key] ||
+      lookup[`<${key}>`] || // some HTML bodies include angle brackets
+      lookup[key.split('@')[0]]; // sometimes the body uses only the left part
+    return url ? ` ${attr}=${quote}${url}${quote}` : m;
+  });
+
 interface EmailDetailProps {
   emailId: string;
   messageId: string;
@@ -64,122 +94,210 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, onClose, 
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const imageUrlsRef = useRef<{[key: string]: string}>({});
   const analyzedImagesRef = useRef<Set<string>>(new Set());
+  const blobUrlsRef = useRef<string[]>([]);
+  const prevMessageIdRef = useRef<string | null>(null);
 
   // Einzelner useEffect für E-Mail-Inhalt und Anhänge
-  useEffect(() => {
-    const processEmail = async () => {
-      if (!email?.body?.content || !email?.attachments) return;
+  // useEffect(() => {
+  //   const processEmail = async () => {
+  //     if (!email?.body?.content || !email?.attachments) return;
 
-      try {
-        // 1. Zuerst alle Inline-Bilder aus dem HTML extrahieren
-        const imgRegex = /<img[^>]+src=["'](?:cid:)?([^"']+)["'][^>]*>/gi;
-        const content = email.body.content;
-        const imgMatches = [...content.matchAll(imgRegex)];
+  //     try {
+  //       // 1. Zuerst alle Inline-Bilder aus dem HTML extrahieren
+  //       const imgRegex = /<img[^>]+src=["'](?:cid:)?([^"']+)["'][^>]*>/gi;
+  //       const content = email.body.content;
+  //       const imgMatches = [...content.matchAll(imgRegex)];
         
-        console.log('Gefundene Bilder:', imgMatches.length);
+  //       console.log('Gefundene Bilder:', imgMatches.length);
 
-        // 2. Alle Anhänge parallel verarbeiten
-        const attachmentPromises = email.attachments.map(async (attachment) => {
-          try {
-            const response = await GraphService.getAttachmentContent(messageId, attachment.id);
-            const blob = new Blob([response], { type: attachment.contentType });
-            const url = URL.createObjectURL(blob);
+  //       // 2. Alle Anhänge parallel verarbeiten
+  //       const attachmentPromises = email.attachments.map(async (attachment) => {
+  //         try {
+  //           const response = await GraphService.getAttachmentContent(messageId, attachment.id);
+  //           const blob = new Blob([response], { type: attachment.contentType });
+  //           const url = URL.createObjectURL(blob);
 
-            // ✅ NEU: Immer URL für die Buttons merken – egal ob inline oder nicht
-            setAttachmentUrls(prev => ({ ...prev, [attachment.id]: url }));
+  //           // ✅ NEU: Immer URL für die Buttons merken – egal ob inline oder nicht
+  //           setAttachmentUrls(prev => ({ ...prev, [attachment.id]: url }));
 
-            // ⬇️ Ab hier: nur Inline-spezifisch weitermachen, wie bisher
-            if (!attachment.contentId) {
-              // kein Inline-Anhang → nichts für cid-Mapping zurückgeben
-              return null;
-            }
+  //           // ⬇️ Ab hier: nur Inline-spezifisch weitermachen, wie bisher
+  //           if (!attachment.contentId) {
+  //             // kein Inline-Anhang → nichts für cid-Mapping zurückgeben
+  //             return null;
+  //           }
 
-            const cleanId = attachment.contentId.replace(/[<>]/g, '').replace(/^cid:/, '');
+  //           const cleanId = attachment.contentId.replace(/[<>]/g, '').replace(/^cid:/, '');
 
-            // (optional) Bildanalyse nur für Images lassen wie gehabt …
-            if (attachment.contentType.startsWith('image/') && !analyzedImagesRef.current.has(attachment.id)) {
-              // ... dein Analysecode unverändert ...
-            }
+  //           // (optional) Bildanalyse nur für Images lassen wie gehabt …
+  //           if (attachment.contentType.startsWith('image/') && !analyzedImagesRef.current.has(attachment.id)) {
+  //             // ... dein Analysecode unverändert ...
+  //           }
 
-            // Für das spätere Ersetzen im HTML zurückgeben
-            return {
-              originalId: attachment.contentId,
-              cleanId,
-              url
-            };
-          } catch (error) {
-            console.error('Fehler beim Laden des Anhangs:', error);
-            return null;
-          }
-        });
+  //           // Für das spätere Ersetzen im HTML zurückgeben
+  //           return {
+  //             originalId: attachment.contentId,
+  //             cleanId,
+  //             url
+  //           };
+  //         } catch (error) {
+  //           console.error('Fehler beim Laden des Anhangs:', error);
+  //           return null;
+  //         }
+  //       });
 
 
-        // 3. Warte auf alle Anhänge
-        const processedAttachments = (await Promise.all(attachmentPromises)).filter(Boolean);
+  //       // 3. Warte auf alle Anhänge
+  //       const processedAttachments = (await Promise.all(attachmentPromises)).filter(Boolean);
 
-        // 4. Erstelle URL-Map für Inline-Bilder
-        const urlMap = processedAttachments.reduce((acc, item) => {
-          if (!item) return acc;
-          const { originalId, cleanId, url } = item;
+  //       // 4. Erstelle URL-Map für Inline-Bilder
+  //       const urlMap = processedAttachments.reduce((acc, item) => {
+  //         if (!item) return acc;
+  //         const { originalId, cleanId, url } = item;
           
-          // Speichere alle möglichen Varianten
-          acc[originalId] = url;
-          acc[cleanId] = url;
-          acc[`cid:${cleanId}`] = url;
-          acc[cleanId.split('@')[0]] = url;
-          acc[`<${cleanId}>`] = url;
-          acc[`<cid:${cleanId}>`] = url;
+  //         // Speichere alle möglichen Varianten
+  //         acc[originalId] = url;
+  //         acc[cleanId] = url;
+  //         acc[`cid:${cleanId}`] = url;
+  //         acc[cleanId.split('@')[0]] = url;
+  //         acc[`<${cleanId}>`] = url;
+  //         acc[`<cid:${cleanId}>`] = url;
           
-          return acc;
-        }, {} as {[key: string]: string});
+  //         return acc;
+  //       }, {} as {[key: string]: string});
 
-        // Speichere URLs in der Ref
-        imageUrlsRef.current = urlMap;
+  //       // Speichere URLs in der Ref
+  //       imageUrlsRef.current = urlMap;
 
-        // 5. HTML verarbeiten und Bilder ersetzen
-        let processedHtml = content;
-        for (const match of imgMatches) {
-          const [fullMatch, cidMatch] = match;
-          const cleanCid = cidMatch.replace(/[<>]/g, '').replace(/^cid:/, '');
+  //       // 5. HTML verarbeiten und Bilder ersetzen
+  //       let processedHtml = content;
+  //       for (const match of imgMatches) {
+  //         const [fullMatch, cidMatch] = match;
+  //         const cleanCid = cidMatch.replace(/[<>]/g, '').replace(/^cid:/, '');
           
-          // Suche URL in allen Varianten
-          const imageUrl = urlMap[cidMatch] || urlMap[cleanCid] || urlMap[`cid:${cleanCid}`] || 
-                          urlMap[cleanCid.split('@')[0]] || urlMap[`<${cleanCid}>`] || 
-                          urlMap[`<cid:${cleanCid}>`];
+  //         // Suche URL in allen Varianten
+  //         const imageUrl = urlMap[cidMatch] || urlMap[cleanCid] || urlMap[`cid:${cleanCid}`] || 
+  //                         urlMap[cleanCid.split('@')[0]] || urlMap[`<${cleanCid}>`] || 
+  //                         urlMap[`<cid:${cleanCid}>`];
 
-          if (imageUrl) {
-            const newImgTag = `<img src="${imageUrl}" alt="Inline-Bild" style="max-width: 100%; height: auto;" />`;
-            processedHtml = processedHtml.replace(fullMatch, newImgTag);
-            console.log('Bild ersetzt:', cleanCid);
-          } else {
-            console.log('Keine URL gefunden für:', cleanCid);
-          }
+  //         if (imageUrl) {
+  //           const newImgTag = `<img src="${imageUrl}" alt="Inline-Bild" style="max-width: 100%; height: auto;" />`;
+  //           processedHtml = processedHtml.replace(fullMatch, newImgTag);
+  //           console.log('Bild ersetzt:', cleanCid);
+  //         } else {
+  //           console.log('Keine URL gefunden für:', cleanCid);
+  //         }
+  //       }
+
+  //       // 6. Verarbeiteten Inhalt setzen
+  //       setProcessedContent(processedHtml);
+
+  //     } catch (error) {
+  //       console.error('Fehler bei der E-Mail-Verarbeitung:', error);
+  //       setError('Fehler bei der Verarbeitung der E-Mail');
+  //     }
+  //   };
+
+  //   if (email?.body?.content) {
+  //     processEmail();
+  //   }
+
+  //   // Cleanup
+  //   return () => {
+  //     Object.values(imageUrlsRef.current).forEach(url => {
+  //       try {
+  //         URL.revokeObjectURL(url);
+  //       } catch (error) {
+  //         console.error('Fehler beim Freigeben der URL:', error);
+  //       }
+  //     });
+  //   };
+  // }, [email, messageId, onAnalysisComplete]);
+useEffect(() => {
+  // if switching to another message, revoke previous blob URLs once
+  if (prevMessageIdRef.current && prevMessageIdRef.current !== messageId) {
+    for (const u of blobUrlsRef.current) {
+      try { URL.revokeObjectURL(u); } catch {}
+    }
+    blobUrlsRef.current = [];
+  }
+  prevMessageIdRef.current = messageId;
+
+  let cancelled = false;
+
+  // show raw HTML immediately for this message (prevents “empty → filled” flicker)
+  if (email?.body?.content && processedContent !== email.body.content) {
+    setProcessedContent(email.body.content);
+  }
+
+  const atts = Array.isArray(email?.attachments) ? email!.attachments! : [];
+  if (!email?.body?.content || atts.length === 0) return;
+
+  const replaceOneCid = (html: string, cid: string, url: string) => {
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const c = esc(cid);
+    return html
+      .replace(new RegExp(String.raw`\s(src)\s*=\s*(['"])cid:${c}\2`, 'gi'),
+               (_m, attr, quote) => ` ${attr}=${quote}${url}${quote}`)
+      .replace(new RegExp(String.raw`\s(src)\s*=\s*(['"])\s*<cid:${c}>\2`, 'gi'),
+               (_m, attr, quote) => ` ${attr}=${quote}${url}${quote}`);
+  };
+
+  const run = async () => {
+    setAnalyzing(true);
+
+    for (const att of atts) {
+      if (cancelled) break;
+      try {
+        // build a blob URL for this attachment
+        let urlForButtons: string | null = null;
+
+        if ((att as any)?.contentBytes) {
+          const blob = base64ToBlob((att as any).contentBytes, att.contentType);
+          urlForButtons = URL.createObjectURL(blob);
+        } else {
+          const buf = await GraphService.getAttachmentContent(messageId, att.id);
+          const blob = new Blob([buf], { type: att.contentType });
+          urlForButtons = URL.createObjectURL(blob);
         }
+        if (!urlForButtons) continue;
 
-        // 6. Verarbeiteten Inhalt setzen
-        setProcessedContent(processedHtml);
+        // keep for later revocation
+        blobUrlsRef.current.push(urlForButtons);
 
-      } catch (error) {
-        console.error('Fehler bei der E-Mail-Verarbeitung:', error);
-        setError('Fehler bei der Verarbeitung der E-Mail');
+        // update only this attachment’s URL (no full replace)
+        setAttachmentUrls(prev => (
+          prev[att.id] === urlForButtons ? prev : { ...prev, [att.id]: urlForButtons }
+        ));
+
+        // if inline, progressively patch just this CID in the HTML
+        if (att.contentId) {
+          const cid = cleanCid(att.contentId);
+          setProcessedContent(prev => prev ? replaceOneCid(prev, cid, urlForButtons!) : prev);
+        }
+      } catch (e) {
+        console.warn('Attachment failed', att?.id, e);
       }
-    };
-
-    if (email?.body?.content) {
-      processEmail();
     }
 
-    // Cleanup
-    return () => {
-      Object.values(imageUrlsRef.current).forEach(url => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (error) {
-          console.error('Fehler beim Freigeben der URL:', error);
-        }
-      });
-    };
-  }, [email, messageId, onAnalysisComplete]);
+    if (!cancelled) setAnalyzing(false);
+  };
+
+  run();
+
+  // IMPORTANT: do not revoke here (StrictMode fake-unmount runs this immediately in dev)
+  return () => { cancelled = true; };
+}, [messageId, email]);
+
+
+// Revoke *once* on component unmount:
+useEffect(() => {
+  return () => {
+    for (const u of blobUrlsRef.current) {
+      try { URL.revokeObjectURL(u); } catch {}
+    }
+    blobUrlsRef.current = [];
+  };
+}, []);
 
   // E-Mail laden
   useEffect(() => {
@@ -213,88 +331,175 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, onClose, 
     });
   };
 
-  const renderAttachments = () => {
-    if (!email?.hasAttachments || !email?.attachments) {
-      return null;
-    }
+  // const renderAttachments = () => {
+  //   if (!email?.hasAttachments || !email?.attachments) {
+  //     return null;
+  //   }
 
-    return (
-      <div className="mt-4 p-3 border border-gray-200 rounded-md">
-        <h3 className="text-sm font-medium mb-2 flex items-center">
-          <PaperClipIcon className="h-4 w-4 mr-1" />
-          Anhänge ({email.attachments.length})
-        </h3>
-        <div className="grid grid-cols-1 gap-4">
-          {email.attachments.map((attachment: Attachment, index: number) => {
-            const url = attachmentUrls[attachment.id];
+  //   return (
+  //     <div className="mt-4 p-3 border border-gray-200 rounded-md">
+  //       <h3 className="text-sm font-medium mb-2 flex items-center">
+  //         <PaperClipIcon className="h-4 w-4 mr-1" />
+  //         Anhänge ({email.attachments.length})
+  //       </h3>
+  //       <div className="grid grid-cols-1 gap-4">
+  //         {email.attachments.map((attachment: Attachment, index: number) => {
+  //           const url = attachmentUrls[attachment.id];
 
-            // ✅ Define helpers here (JS land), not inside JSX tags
-            const rawType = attachment.contentType || '';
-            const mime = rawType.split(';')[0].trim();
-            const isImage = rawType.startsWith('image/');
-            const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(attachment.name || '');
+  //           // ✅ Define helpers here (JS land), not inside JSX tags
+  //           const rawType = attachment.contentType || '';
+  //           const mime = rawType.split(';')[0].trim();
+  //           const isImage = rawType.startsWith('image/');
+  //           const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(attachment.name || '');
               
-            if (!url) {
-              return null;
-            }
+  //           if (!url) {
+  //             return null;
+  //           }
 
-            return (
-              <div key={index} className="flex flex-col p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center">
-                    <PaperClipIcon className="h-4 w-4 mr-2 text-gray-500" />
-                    <span className="text-sm font-medium">{attachment.name}</span>
-                  </div>
-                  <div className="flex items-center space-x-4">
+  //           return (
+  //             <div key={index} className="flex flex-col p-4 bg-gray-50 rounded-lg">
+  //               <div className="flex items-center justify-between mb-2">
+  //                 <div className="flex items-center">
+  //                   <PaperClipIcon className="h-4 w-4 mr-2 text-gray-500" />
+  //                   <span className="text-sm font-medium">{attachment.name}</span>
+  //                 </div>
+  //                 <div className="flex items-center space-x-4">
 
-                    {((isImage || isPdf)) && (
-                      <button
-                        onClick={() => window.open(url, '_blank')}
-                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
-                      >
-                        Anzeigen
-                      </button>
-                    )}
+  //                   {((isImage || isPdf)) && (
+  //                     <button
+  //                       onClick={() => window.open(url, '_blank')}
+  //                       className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+  //                     >
+  //                       Anzeigen
+  //                     </button>
+  //                   )}
 
+  //                   <button
+  //                     onClick={async () => {
+  //                       try {
+  //                         const content = await GraphService.getAttachmentContent(messageId, attachment.id);
+  //                         const blob = new Blob([content], { type: attachment.contentType });
+  //                         const downloadUrl = URL.createObjectURL(blob);
+  //                         const a = document.createElement('a');
+  //                         a.href = downloadUrl;
+  //                         a.download = attachment.name;
+  //                         document.body.appendChild(a);
+  //                         a.click();
+  //                         document.body.removeChild(a);
+  //                         URL.revokeObjectURL(downloadUrl);
+  //                       } catch (error) {
+  //                         console.error('Fehler beim Herunterladen:', error);
+  //                       }
+  //                     }}
+  //                     className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+  //                   >
+  //                     <ArrowUturnLeftIcon className="h-4 w-4 mr-1" />
+  //                     Herunterladen
+  //                   </button>
+  //                 </div>
+  //               </div>
+  //               {isImage && (
+  //                 <img 
+  //                   src={url} 
+  //                   alt={attachment.name}
+  //                   className="mt-2 max-w-full h-auto rounded-lg"
+  //                   style={{ maxHeight: '300px' }}
+  //                 />
+  //               )}
+  //             </div>
+  //           );
+  //         })}
+  //       </div>
+  //     </div>
+  //   );
+  // };
+  const renderAttachments = () => {
+  if (!email?.hasAttachments || !email?.attachments) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 p-3 border border-gray-200 rounded-md">
+      <h3 className="text-sm font-medium mb-2 flex items-center">
+        <PaperClipIcon className="h-4 w-4 mr-1" />
+        Anhänge ({email.attachments.length})
+      </h3>
+      <div className="grid grid-cols-1 gap-4">
+        {email.attachments.map((attachment: Attachment, index: number) => {
+          const url = attachmentUrls[attachment.id];
+
+          const rawType = attachment.contentType || '';
+          const mime = rawType.split(';')[0].trim();
+          const isImage = rawType.startsWith('image/');
+          const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(attachment.name || '');
+
+          return (
+            <div key={index} className="flex flex-col p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center">
+                  <PaperClipIcon className="h-4 w-4 mr-2 text-gray-500" />
+                  <span className="text-sm font-medium">{attachment.name}</span>
+                </div>
+                <div className="flex items-center space-x-4">
+
+                  {/* Anzeigen only if we already have a blob URL AND it's previewable */}
+                  {url && (isImage || isPdf) && (
                     <button
-                      onClick={async () => {
-                        try {
-                          const content = await GraphService.getAttachmentContent(messageId, attachment.id);
-                          const blob = new Blob([content], { type: attachment.contentType });
-                          const downloadUrl = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = downloadUrl;
-                          a.download = attachment.name;
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                          URL.revokeObjectURL(downloadUrl);
-                        } catch (error) {
-                          console.error('Fehler beim Herunterladen:', error);
-                        }
-                      }}
+                      onClick={() => window.open(url, '_blank')}
                       className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
                     >
-                      <ArrowUturnLeftIcon className="h-4 w-4 mr-1" />
-                      Herunterladen
+                      Anzeigen
                     </button>
-                  </div>
+                  )}
+
+                  {/* Herunterladen is ALWAYS available (it fetches from Graph on click) */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        const content = await GraphService.getAttachmentContent(messageId, attachment.id);
+                        const blob = new Blob([content], { type: attachment.contentType });
+                        const downloadUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = downloadUrl;
+                        a.download = attachment.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(downloadUrl);
+                      } catch (error) {
+                        console.error('Fehler beim Herunterladen:', error);
+                      }
+                    }}
+                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+                  >
+                    <ArrowUturnLeftIcon className="h-4 w-4 mr-1" />
+                    Herunterladen
+                  </button>
                 </div>
-                {isImage && (
-                  <img 
-                    src={url} 
-                    alt={attachment.name}
-                    className="mt-2 max-w-full h-auto rounded-lg"
-                    style={{ maxHeight: '300px' }}
-                  />
-                )}
               </div>
-            );
-          })}
-        </div>
+
+              {/* Inline preview only if we have a URL AND it's an image */}
+              {url && isImage && (
+                <img
+                  src={url}
+                  alt={attachment.name}
+                  className="mt-2 max-w-full h-auto rounded-lg"
+                  style={{ maxHeight: '300px' }}
+                />
+              )}
+
+              {/* Optional: tiny placeholder while we’re building the blob URL */}
+              {!url && (isImage || isPdf) && (
+                <div className="text-xs text-gray-500 italic">Vorschau wird vorbereitet…</div>
+              )}
+            </div>
+          );
+        })}
       </div>
-    );
-  };
+    </div>
+  );
+};
+
 
   if (loading) {
     return (
@@ -409,7 +614,7 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, onClose, 
             </div>
           </div>
           
-          <div className="prose max-w-none">
+          {/* <div className="prose max-w-none">
             {email?.body?.contentType === 'html' ? (
               <div 
                 dangerouslySetInnerHTML={{ 
@@ -419,7 +624,21 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, onClose, 
             ) : (
               <pre className="whitespace-pre-wrap font-sans">{email?.body?.content}</pre>
             )}
-          </div>
+          </div> */}
+
+              <div className="prose max-w-none">
+                {email?.body?.contentType === 'html' ? (
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: processedContent || email.body.content
+                    }}
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap font-sans">{email?.body?.content}</pre>
+                )}
+              </div>
+
+
           
           {renderAttachments()}
         </div>

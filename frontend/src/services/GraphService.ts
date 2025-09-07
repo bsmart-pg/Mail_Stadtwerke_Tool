@@ -81,6 +81,21 @@ export const GraphService = {
   /**
    * Erstellt einen HTTP-Client mit dem aktuellen Access Token
    */
+  // getAuthenticatedClient: async () => {
+  //   const token = await MsalService.getAccessToken();
+
+  //   if (!token) {
+  //     throw new Error('Keine Authentifizierung möglich. Bitte melden Sie sich an.');
+  //   }
+
+  //   return axios.create({
+  //     baseURL: GRAPH_API_ENDPOINT,
+  //     headers: {
+  //       Authorization: `Bearer ${token}`,
+  //       'Content-Type': 'application/json',
+  //     },
+  //   });
+  // },
   getAuthenticatedClient: async () => {
     const token = await MsalService.getAccessToken();
 
@@ -88,92 +103,166 @@ export const GraphService = {
       throw new Error('Keine Authentifizierung möglich. Bitte melden Sie sich an.');
     }
 
-    return axios.create({
+    const client = axios.create({
       baseURL: GRAPH_API_ENDPOINT,
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
     });
+
+    // simple 429 retry with Retry-After support (up to 3 tries)
+    client.interceptors.response.use(undefined, async (error) => {
+      const cfg = error.config || {};
+      const status = error?.response?.status;
+      if (status === 429 && !cfg.__retryCount) cfg.__retryCount = 0;
+
+      if (status === 429 && cfg.__retryCount < 3) {
+        cfg.__retryCount++;
+        const ra = Number(error.response?.headers?.['retry-after']);
+        const delayMs = !Number.isNaN(ra) ? ra * 1000 : 1000 * Math.pow(2, cfg.__retryCount); // 1s, 2s, 4s
+        await new Promise(r => setTimeout(r, delayMs));
+        return client(cfg);
+      }
+      return Promise.reject(error);
+    });
+
+    return client;
   },
+
 
   /**
    * Ruft die Mails im Posteingang ab
    */
-  getInboxMails: async (maxResults = 50) => {
-    try {
-      GraphService.ensureSyncStart();
-      const client = await GraphService.getAuthenticatedClient();
+  // getInboxMails: async (maxResults = 50) => {
+  //   try {
+  //     GraphService.ensureSyncStart();
+  //     const client = await GraphService.getAuthenticatedClient();
 
-      // restore deltaLink once if memory is empty
-      if (!GraphService.deltaLink && typeof window !== 'undefined') {
-        GraphService.deltaLink = window.localStorage.getItem(STORAGE_KEYS.DELTA_LINK);
-      }
+  //     // restore deltaLink once if memory is empty
+  //     if (!GraphService.deltaLink && typeof window !== 'undefined') {
+  //       GraphService.deltaLink = window.localStorage.getItem(STORAGE_KEYS.DELTA_LINK);
+  //     }
 
-      const syncStart = new Date(GraphService.syncWindowStartUtc!);
-      const keepIfNewer = (m: any) => {
-        if(m.hasOwnProperty('receivedDateTime')){
-          return (new Date(m.receivedDateTime) >= syncStart);
-        } else {
-          return true;
-        }
-      }
+  //     const syncStart = new Date(GraphService.syncWindowStartUtc!);
+  //     const keepIfNewer = (m: any) => {
+  //       if(m.hasOwnProperty('receivedDateTime')){
+  //         return (new Date(m.receivedDateTime) >= syncStart);
+  //       } else {
+  //         return true;
+  //       }
+  //     }
         
 
-      let items: any[] = [];
-      let url: string | null = GraphService.deltaLink;
+  //     let items: any[] = [];
+  //     let url: string | null = GraphService.deltaLink;
 
-      while (true) {
-        let res;
-        if (url) {
-          console.log("if(url) "+ url)
-          res = await client.get(url);
-        } else {
-          // CHANGED: same filter, but now driven by env/ensureSyncStart value
-          const filter = encodeURIComponent(
-            `receivedDateTime ge ${GraphService.syncWindowStartUtc}`
-          );
-          // const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
-          const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}`;
-          console.log('Initial delta GET:', firstUrl);
-          res = await client.get(firstUrl);
+  //     while (true) {
+  //       let res;
+  //       if (url) {
+  //         console.log("if(url) "+ url)
+  //         res = await client.get(url);
+  //       } else {
+  //         // CHANGED: same filter, but now driven by env/ensureSyncStart value
+  //         const filter = encodeURIComponent(
+  //           `receivedDateTime ge ${GraphService.syncWindowStartUtc}`
+  //         );
+  //         // const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}&$filter=${filter}`;
+  //         const firstUrl = `/users/${inboxEmailAdress}/mailFolders/inbox/messages/delta?$top=${maxResults}`;
+  //         console.log('Initial delta GET:', firstUrl);
+  //         res = await client.get(firstUrl);
+  //       }
+  //       console.log(res)
+  //       const data = res.data ?? {};
+  //       console.log(data)
+  //       const batch = Array.isArray(data.value) ? data.value : [];
+  //       // const filtered = batch.filter(keepIfNewer);
+  //       // items = items.concat(filtered);
+  //       // const filtered = batch.filter(keepIfNewer);
+  //       items = items.concat(batch);
+
+  //       if (data['@odata.nextLink']) {
+  //         url = data['@odata.nextLink'];
+  //         continue;
+  //       }
+
+  //       GraphService.deltaLink = data['@odata.deltaLink'] ?? null;
+  //       try {
+  //         if (GraphService.deltaLink) {
+  //           window.localStorage.setItem(STORAGE_KEYS.DELTA_LINK, GraphService.deltaLink);
+  //         } else {
+  //           window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
+  //         }
+  //       } catch {}
+  //       break;
+  //     }
+
+  //     return items;
+  //   } catch (err: any) {
+  //     if (err?.response?.status === 410) {
+  //       console.warn('Delta token expired (410). Resetting and retrying once.');
+  //       GraphService.deltaLink = null;
+  //       try {
+  //         window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
+  //       } catch {}
+  //       return await GraphService.getInboxMails(maxResults);
+  //     }
+  //     console.error('Fehler beim Abrufen der E-Mails:', err);
+  //     throw err;
+  //   }
+  // },
+
+  // REPLACE ONLY THIS METHOD inside GraphService
+
+/**
+ * Ruft die Mails im Posteingang ab (VOLLSCAN, kein Delta)
+ */
+  getInboxMails: async (maxResults = 50) => {
+    try {
+      const client = await GraphService.getAuthenticatedClient();
+
+      // what we need for the list view; attachments expanded later on demand
+      const SELECT_FIELDS = [
+        'id','subject','from','bodyPreview',
+        'receivedDateTime','lastModifiedDateTime',
+        'hasAttachments','parentFolderId'
+      ].join(',');
+
+      // inside getInboxMails
+      let filterPart = '';
+      if (ENV_SYNC_START_UTC) {
+        const d = new Date(ENV_SYNC_START_UTC);
+        if (!Number.isNaN(d.getTime())) {
+          filterPart = `&$filter=receivedDateTime ge ${d.toISOString()}`;
         }
-        console.log(res)
+      }
+
+      let url =
+        `/users/${inboxEmailAdress}/mailFolders/inbox/messages` +
+        `?$select=${encodeURIComponent(SELECT_FIELDS)}` +
+        `&$orderby=receivedDateTime desc` +
+        `&$top=${maxResults}` +
+        filterPart;
+
+      const items: any[] = [];
+      // ask Graph nicely to send up to maxResults per page
+      const headers = { Prefer: `odata.maxpagesize=${maxResults}` };
+
+      while (url) {
+        const res = await client.get(url, { headers });
         const data = res.data ?? {};
-        console.log(data)
         const batch = Array.isArray(data.value) ? data.value : [];
-        // const filtered = batch.filter(keepIfNewer);
-        // items = items.concat(filtered);
-        // const filtered = batch.filter(keepIfNewer);
-        items = items.concat(batch);
+        items.push(...batch);
 
-        if (data['@odata.nextLink']) {
-          url = data['@odata.nextLink'];
-          continue;
-        }
+        // stop early if we already have a comfortable amount (e.g., 200 total)
+        if (items.length >= 200) break;
 
-        GraphService.deltaLink = data['@odata.deltaLink'] ?? null;
-        try {
-          if (GraphService.deltaLink) {
-            window.localStorage.setItem(STORAGE_KEYS.DELTA_LINK, GraphService.deltaLink);
-          } else {
-            window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
-          }
-        } catch {}
-        break;
+        url = data['@odata.nextLink'] ?? null;
       }
 
       return items;
-    } catch (err: any) {
-      if (err?.response?.status === 410) {
-        console.warn('Delta token expired (410). Resetting and retrying once.');
-        GraphService.deltaLink = null;
-        try {
-          window.localStorage.removeItem(STORAGE_KEYS.DELTA_LINK);
-        } catch {}
-        return await GraphService.getInboxMails(maxResults);
-      }
-      console.error('Fehler beim Abrufen der E-Mails:', err);
+    } catch (err) {
+      console.error('Fehler beim Abrufen der E-Mails (Full Load):', err);
       throw err;
     }
   },
@@ -376,6 +465,79 @@ export const GraphService = {
       throw error;
     }
   },
+
+  /**
+ * Turn a message (from getEmailContent) into safe HTML with inline images working.
+ * Falls back to fetching attachment bytes if contentBytes is missing.
+ */
+  async buildRenderableEmailHtml(message: any) {
+    let html = message?.body?.content || '';
+    const atts: any[] = Array.isArray(message?.attachments) ? message.attachments : [];
+
+    // Map Content-ID -> data URL
+    const cidToUrl = new Map<string, string>();
+
+    // Normalize helper (your service already strips <> and `cid:` sometimes; be defensive)
+    const cleanCid = (cid?: string) =>
+      (cid || '')
+        .replace(/^</, '')
+        .replace(/>$/, '')
+        .replace(/^cid:/i, '');
+
+    for (const att of atts) {
+      if (!att?.isInline) continue;
+
+      const cid = cleanCid(att?.contentId);
+      if (!cid) continue;
+
+      let dataUrl: string | null = null;
+
+      // Prefer inline contentBytes if present on expanded attachment
+      if (att?.contentBytes) {
+        dataUrl = `data:${att.contentType || 'application/octet-stream'};base64,${att.contentBytes}`;
+      } else {
+        // Fallback: fetch raw bytes with your existing API and convert to base64
+        try {
+          const arrayBuf = await GraphService.getAttachmentContent(message.id, att.id);
+          const bytes = new Uint8Array(arrayBuf);
+          // Convert to base64 in-browser
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+          const b64 = btoa(binary);
+          dataUrl = `data:${att.contentType || 'application/octet-stream'};base64,${b64}`;
+        } catch (e) {
+          console.warn('Could not fetch inline attachment bytes', { id: att?.id, cid, e });
+          dataUrl = null;
+        }
+      }
+
+      if (dataUrl) cidToUrl.set(cid, dataUrl);
+    }
+
+    // Replace all src="cid:..." (single or double quotes)
+    html = html.replace(
+      /\s(src)\s*=\s*(['"])cid:([^'"]+)\2/gi,
+      (m, attr, quote, rawCid) => {
+        const key = cleanCid(rawCid);
+        const url = cidToUrl.get(key);
+        return url ? ` ${attr}=${quote}${url}${quote}` : m; // leave as-is if we don't have it
+      }
+    );
+
+    // Some mails use Content-Location instead of CID or include angle brackets in src
+    html = html.replace(
+      /\s(src)\s*=\s*(['"])\s*<cid:([^>]+)>\s*\2/gi,
+      (m, attr, quote, rawCid) => {
+        const key = cleanCid(rawCid);
+        const url = cidToUrl.get(key);
+        return url ? ` ${attr}=${quote}${url}${quote}` : m;
+      }
+    );
+
+    // Now inject `html` into your viewer (ideally via a sanitizer like DOMPurify)
+    return html;
+  }
+
 };
 
 export default GraphService;

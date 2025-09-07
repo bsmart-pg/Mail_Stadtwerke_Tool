@@ -74,8 +74,8 @@ class OpenAIService {
       `) 
       }
 
-      console.log(cats)
-      console.log(flow_prompt)
+      // console.log(cats)
+      // console.log(flow_prompt)
 
       let prompt = `Analysiere den folgenden E-Mail-Text sehr sorgfältig und extrahiere ALLE Kundennummern (falls vorhanden) und ordne die E-Mail ALLEN zutreffenden Kategorien zu:
 
@@ -112,7 +112,7 @@ class OpenAIService {
           ]
         }`;
 
-      console.log(prompt)
+      // console.log(prompt)
       const response = await this.analyzeText(prompt);
       
       try {
@@ -176,7 +176,7 @@ class OpenAIService {
   }> {
     try {
       console.log('Starte Bildanalyse mit GPT-4o...');
-      console.log("CAT CHECK")
+      // console.log("CAT CHECK")
       let cats = `KATEGORIEN:
       `;
       const loadedData = await getCategories();
@@ -215,8 +215,8 @@ class OpenAIService {
       `) 
       }
 
-      console.log(cats)
-      console.log(flow_prompt)
+      // console.log(cats)
+      // console.log(flow_prompt)
 
 
       let prompt = `Analysiere dieses Bild sehr sorgfältig. Extrahiere ALLE Kundennummern (falls vorhanden) und ordne das Bild ALLEN zutreffenden Kategorien zu:
@@ -269,8 +269,8 @@ class OpenAIService {
       });
       const content = response.choices[0]?.message?.content?.replace(/```json\n?|```/g, '') || '{"customerNumber": null, "category": "Sonstiges", "allCustomerNumbers": [], "allCategories": [], "extractedInformation": []}';
       try {
-        console.log('OpenAI Vision Antwort:', content);
-        // const response = JSON.parse(content);
+        // console.log('OpenAI Vision Antwort:', content);
+        const response = JSON.parse(content);
         // console.log('Erfolgreich geparste JSON-Antwort:', response);
         
         // Validiere die Kategorien
@@ -310,7 +310,7 @@ class OpenAIService {
     try {
       console.log('Starte PDF-analyse mit GPT-4o...');
 
-      console.log("CAT CHECK")
+      // console.log("CAT CHECK")
       let cats = `KATEGORIEN:
       `;
       const loadedData = await getCategories();
@@ -349,8 +349,8 @@ class OpenAIService {
       `) 
       }
 
-      console.log(cats)
-      console.log(flow_prompt)
+      // console.log(cats)
+      // console.log(flow_prompt)
 
       let prompt = `Analysiere dieses Bild sehr sorgfältig. Extrahiere ALLE Kundennummern (falls vorhanden) und ordne das Bild ALLEN zutreffenden Kategorien zu:
 
@@ -403,8 +403,8 @@ class OpenAIService {
       });
       const content = response.choices[0]?.message?.content?.replace(/```json\n?|```/g, '') || '{"customerNumber": null, "category": "Sonstiges", "allCustomerNumbers": [], "allCategories": [], "extractedInformation": []}';
       try {
-        console.log('OpenAI Vision Antwort for PDF:', content);
-        // const response = JSON.parse(content);
+        // console.log('OpenAI Vision Antwort for PDF:', content);
+        const response = JSON.parse(content);
         // console.log('Erfolgreich geparste JSON-Antwort:', response);
         
         // Validiere die Kategorien
@@ -476,7 +476,7 @@ class OpenAIService {
       console.log('adgsvhjvkdf:', response);
       const result = JSON.parse(cleanJsonString(response));
       console.log('cleaned:', result);
-      console.log('ChatGPT Multi-Analyse Ergebnis:', result);
+      // console.log('ChatGPT Multi-Analyse Ergebnis:', result);
 
       // Validiere die flows
       const validFlows = flowData.map(
@@ -498,11 +498,11 @@ class OpenAIService {
       // Validiere Hauptkategorie
       if (!validCategories.includes(result.category)) {
         // wenn kategorie nicht valide ist, checke ob allcategories Array validen wert hat
-        console.log("validCategories:")
-        console.log(validCategories)
-        console.log("result.category:")
-        console.log(result.category)
-        console.log("category not valid, searching in allCategories array for valid one")
+        // console.log("validCategories:")
+        // console.log(validCategories)
+        // console.log("result.category:")
+        // console.log(result.category)
+        // console.log("category not valid, searching in allCategories array for valid one")
         if (result.allCategories.length > 0) {
           const found = result.allCategories.find(
             (elem: string) => validCategories.includes(elem)
@@ -558,13 +558,13 @@ class OpenAIService {
       // Validiere flows
       if (Array.isArray(result.extractedInformation) && result.extractedInformation.length >= 0) {
         console.log("here is the extracted infor:")
-        console.log(result.extractedInformation)
-        console.log(validFlows)
+        // console.log(result.extractedInformation)
+        // console.log(validFlows)
         result.extractedInformation = result.extractedInformation.filter((elem: {name: string, data: object}) => 
           validFlows.includes(elem.name)
         );
         console.log("here is the extracted infor after filter:")
-        console.log(result.extractedInformation)
+        // console.log(result.extractedInformation)
         for (const fl of result.extractedInformation) {
           const foundFlow = flowData.find((elem) => { elem.category === fl.name })
           if(foundFlow){
@@ -598,13 +598,13 @@ class OpenAIService {
         result.extractedInformation = [];
       }
         
-      console.log('Bereinigte Analyse-Ergebnisse:', {
-        customerNumber: result.customerNumber,
-        category: result.category,
-        allCustomerNumbers: result.allCustomerNumbers,
-        allCategories: result.allCategories,
-        extractedInformation: result.extractedInformation
-      });
+      // console.log('Bereinigte Analyse-Ergebnisse:', {
+      //   customerNumber: result.customerNumber,
+      //   category: result.category,
+      //   allCustomerNumbers: result.allCustomerNumbers,
+      //   allCategories: result.allCategories,
+      //   extractedInformation: result.extractedInformation
+      // });
         
       return {
         customerNumber: result.customerNumber,

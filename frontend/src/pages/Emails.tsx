@@ -502,10 +502,15 @@ const Emails: React.FC = () => {
         throw new Error('Fehler beim Speichern der E-Mail in der Datenbank');
       }
 
-      analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
-        .catch(error => {
-          console.error('Fehler bei Hintergrund-Analyse:', error);
-        });
+      // analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
+      //   .catch(error => {
+      //     console.error('Fehler bei Hintergrund-Analyse:', error);
+      //   });
+      
+      if (!savedEmail.analysis_completed) {
+        analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
+          .catch(err => console.error('Fehler bei Hintergrund-Analyse:', err));
+      }
 
       return {
         ...savedEmail,
@@ -541,29 +546,48 @@ const Emails: React.FC = () => {
         existingEmails.map(email => [email.message_id, email])
       );
       
-      const outlookEmails = await GraphService.getInboxMails(50);
+      const outlookEmails = await GraphService.getInboxMails(300);
       console.log("outlookEmails")
       console.log(outlookEmails)
-      const deletedEmailIds= outlookEmails.filter(
-        (em: object) => em.hasOwnProperty('@removed')
-      ).map((elem: any) => elem.id)
 
-      console.log("deletedEmailIds")
-      console.log(deletedEmailIds)
+      const snapshotIds = new Set(outlookEmails.map((m: any) => m.id));
+      
+      const toDeleteLocals = existingEmails.filter(
+        (e) => !snapshotIds.has(e.message_id)
+      );
 
-      const newEmails = outlookEmails.filter(
-        (em: object) => !em.hasOwnProperty('@removed')
-      )
+      for (const local of toDeleteLocals) {
+        try {
+          await deleteRequestStatus(local.id);
+          await deleteForwardingStatus(local.id);
+          await deleteEmail(local.id);
+        } catch (e) {
+          console.error('Fehler beim Löschen lokaler E-Mail (Diff):', e);
+        }
+      }
+
+      // const deletedEmailIds= outlookEmails.filter(
+      //   (em: object) => em.hasOwnProperty('@removed')
+      // ).map((elem: any) => elem.id)
+
+      // console.log("deletedEmailIds")
+      // console.log(deletedEmailIds)
+
+
+      const newEmails = outlookEmails;
+      // const newEmails = outlookEmails.filter(
+      //   (em: object) => !em.hasOwnProperty('@removed')
+      // )
 
       console.log("newEmails")
       console.log(newEmails)
 
-      for (const delId of deletedEmailIds){
-        const email = await getEmailByMessageId(delId)
-        await deleteRequestStatus(email.id)
-        await deleteForwardingStatus(email.id)
-        await deleteEmail(email.id)
-      }
+      // for (const delId of deletedEmailIds){
+      //   const email = await getEmailByMessageId(delId)
+      //   await deleteRequestStatus(email.id)
+      //   await deleteForwardingStatus(email.id)
+      //   await deleteEmail(email.id)
+      // }
       
       const processedEmails: DisplayEmail[] = [];
       
@@ -591,27 +615,27 @@ const Emails: React.FC = () => {
           }
 
           let fullEmail = outlookEmail;
-          if (outlookEmail.hasAttachments) {
-            fullEmail = await GraphService.getEmailContent(outlookEmail.id);
+          // if (outlookEmail.hasAttachments) {
+          //   fullEmail = await GraphService.getEmailContent(outlookEmail.id);
             
-            if (fullEmail.attachments && Array.isArray(fullEmail.attachments)) {
-              for (let i = 0; i < fullEmail.attachments.length; i++) {
-                const att = fullEmail.attachments[i] as any;
-                if (att.contentType && att.contentType.startsWith('image/') && att.id) {
-                  try {
-                    const buffer = await GraphService.getAttachmentContent(fullEmail.id, att.id);
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-                    att.contentBytes = base64;
-                  } catch (error) {
-                    console.error(`Fehler beim Laden von base64 für Attachment ${att.name}:`, error);
-                    att.contentBytes = null;
-                  }
-                } else if (att.contentType && att.contentType.startsWith('image/')) {
-                  att.contentBytes = null;
-                }
-              }
-            }
-          }
+          //   if (fullEmail.attachments && Array.isArray(fullEmail.attachments)) {
+          //     for (let i = 0; i < fullEmail.attachments.length; i++) {
+          //       const att = fullEmail.attachments[i] as any;
+          //       if (att.contentType && att.contentType.startsWith('image/') && att.id) {
+          //         try {
+          //           const buffer = await GraphService.getAttachmentContent(fullEmail.id, att.id);
+          //           const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          //           att.contentBytes = base64;
+          //         } catch (error) {
+          //           console.error(`Fehler beim Laden von base64 für Attachment ${att.name}:`, error);
+          //           att.contentBytes = null;
+          //         }
+          //       } else if (att.contentType && att.contentType.startsWith('image/')) {
+          //         att.contentBytes = null;
+          //       }
+          //     }
+          //   }
+          // }
           
           const processedEmail = await processOutlookEmail(fullEmail, null);
           
@@ -649,6 +673,7 @@ const Emails: React.FC = () => {
       setError('Fehler beim Laden der E-Mails aus Outlook');
     } finally {
       console.log("DONEODNEDONE");
+      setLoading(false); // tiny QoL
     }
   };
   
@@ -1437,7 +1462,6 @@ const Emails: React.FC = () => {
                                       onKeyDown={async (e) => {
                                         if (e.key === 'Enter') {
                                           await manualForwardEmails(email.id, manualForwardRecipient);
-                                          await loadEmails();
                                         }
                                         if (e.key === 'Escape') {
                                           setOpenManualForwardEmailId(null);
@@ -1456,7 +1480,6 @@ const Emails: React.FC = () => {
                                         className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
                                         onClick={async () => {
                                           await manualForwardEmails(email.id, manualForwardRecipient);
-                                          await loadEmails();
                                         }}
                                       >
                                         Senden

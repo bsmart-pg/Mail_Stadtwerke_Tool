@@ -113,6 +113,8 @@ class AnalysisService {
    * Startet die Hintergrund-Analyse für eine E-Mail
    */
   async startBackgroundAnalysis(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
+    if (this.analysisQueue.has(messageId)) return;
+    this.analysisQueue.add(messageId);
     try {
       console.log(`Starte Hintergrund-Analyse für E-Mail ${emailId}`);
 
@@ -198,6 +200,8 @@ class AnalysisService {
       } catch (updateError) {
         console.error('Fehler beim Aktualisieren des Fehlerstatus:', updateError);
       }
+    }finally {
+      this.analysisQueue.delete(messageId);
     }
   }
 
