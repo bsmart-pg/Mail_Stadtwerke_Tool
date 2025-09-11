@@ -822,25 +822,31 @@ class AnalysisService {
     console.log("following combo")
     try {
       // Erstelle den Weiterleitungsbetreff mit Tags
-      let forwardSubject = ` FWD: ${email.subject || 'Kein Betreff'}`;
+      const subject = ` FWD: ${email.subject || 'Kein Betreff'}`;
 
-      // Erstelle den Weiterleitungsinhalt
-      let forwardBody = `<p><strong>Ursprünglicher Absender:</strong> ${email.from?.emailAddress?.address}</p>`;
-      forwardBody += `<p><strong>Empfangen am:</strong> ${new Date(email.receivedDateTime).toLocaleString('de-DE')}</p>`;
-      forwardBody += `</div>`;
-      forwardBody += `<h4 style="color: #374151; margin-top: 25px;">URSPRÜNGLICHE NACHRICHT</h4>`;
-      forwardBody += `<div style="border-left: 4px solid #d1d5db; padding-left: 15px; margin-left: 10px;">`;
+      // Build forwardable HTML + *proper* inline + regular attachments
+      const { html: originalHtmlWithFixedCids, attachments } = await buildForwardableContent(email);
+
+
+      const header =
+      `<div style="font-family: Arial, sans-serif; line-height: 1.6;">` +
+      `<p><strong>Ursprünglicher Absender:</strong> ${email.from?.emailAddress?.address || ''}</p>` +
+      `<p><strong>Empfangen am:</strong> ${new Date(email.receivedDateTime).toLocaleString('de-DE')}</p>` +
+      `<h4 style="color: #374151; margin-top: 25px;">URSPRÜNGLICHE NACHRICHT</h4>` +
+      `<div style="border-left: 4px solid #d1d5db; padding-left: 15px; margin-left: 10px;">`;
+
+      const body = `${header}${originalHtmlWithFixedCids}</div></div>`;
       
-      // Füge den ursprünglichen Inhalt hinzu
-      if (email.body?.contentType === 'html') {
-        forwardBody += email.body.content;
-      } else {
-        // Konvertiere Text zu HTML
-        const textContent = email.body?.content || '';
-        forwardBody += `<pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${textContent}</pre>`;
-      }
+      // // Füge den ursprünglichen Inhalt hinzu
+      // if (email.body?.contentType === 'html') {
+      //   forwardBody += email.body.content;
+      // } else {
+      //   // Konvertiere Text zu HTML
+      //   const textContent = email.body?.content || '';
+      //   forwardBody += `<pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${textContent}</pre>`;
+      // }
       
-      forwardBody += `</div></div>`;
+      // forwardBody += `</div></div>`;
 
       // Konfigurierbare Ziel-E-Mail-Adressen (später aus Einstellungen laden)
       const targetRecipients = [
@@ -849,19 +855,26 @@ class AnalysisService {
       
       // Sende die tatsächliche Weiterleitung
       console.log('Sende Weiterleitung:', {
-        subject: forwardSubject,
+        subject: subject,
         index: index,
         total: total,
         recipients: targetRecipients
       });
       
-      if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
-        console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
-        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients, email.attachments);
-      }
-      else{
-        await GraphService.sendEmail(forwardSubject, forwardBody, targetRecipients);
-      }
+
+      await GraphService.sendEmail(
+        subject, 
+        body, 
+        targetRecipients, 
+        attachments
+      );
+      // if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
+      //   console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);
+      //   await GraphService.sendEmail(subject, body, targetRecipients, attachments);
+      // }
+      // else{
+      //   await GraphService.sendEmail(subject, body, targetRecipients);
+      // }
       
       
       console.log(`✅ Weiterleitung ${index}/${total} erfolgreich an ${targetRecipients.join(', ')} gesendet`);
