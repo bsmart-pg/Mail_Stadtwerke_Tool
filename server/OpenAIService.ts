@@ -48,7 +48,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' - '+ d.name + ': ' + d.description +  `
+        cats += (' - Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
       `) 
       }
 
@@ -77,7 +77,7 @@ class OpenAIService {
       console.log(cats)
       console.log(flow_prompt)
 
-      let prompt = `Analysiere den folgenden E-Mail-Text sehr sorgfältig und extrahiere ALLE Kundennummern (falls vorhanden) und ordne die E-Mail ALLEN zutreffenden Kategorien zu:
+      let prompt = `Analysiere den folgenden E-Mail-Text und auch BETREFF sehr sorgfältig und extrahiere ALLE Kundennummern (falls vorhanden) und ordne die E-Mail ALLEN zutreffenden Kategorien zu:
 
       `
       prompt += cats;
@@ -86,8 +86,8 @@ class OpenAIService {
       prompt += `
       `
       prompt += `ANALYSE-ANWEISUNGEN:
-        1. Lies den GESAMTEN Text sorgfältig durch
-        2. Suche nach ALLEN Kundennummern (meist 6-12 stellige Zahlen)
+        1. Lies den GESAMTEN Text und BETREFF sorgfältig durch, informationen können sowohl im Betreff und dem Text stehen.
+        2. Suche nach ALLEN Kundennummern. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer.
         3. Prüfe JEDEN Satz auf mögliche Kategorien
         4. Eine E-Mail kann MEHRERE Kategorien gleichzeitig betreffen
         5. Vergiss nicht, auch Nebensätze und Anhänge-Erwähnungen zu prüfen
@@ -189,7 +189,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' - '+ d.name + ': ' + d.description +  `
+        cats += (' - Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
       `) 
       }
 
@@ -227,7 +227,7 @@ class OpenAIService {
       prompt += `
       
       WICHTIG: 
-      - Finde ALLE Kundennummern im Bild (meist 6-12 stellige Zahlen)
+      - Finde ALLE Kundennummern im Bild. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer.
       - Das Bild kann mehrere Kategorien gleichzeitig betreffen
       - Prüfe alle Texte und Zahlen im Bild sorgfältig
 
@@ -323,7 +323,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' - '+ d.name + ': ' + d.description +  `
+        cats += (' - Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
       `) 
       }
 
@@ -352,7 +352,7 @@ class OpenAIService {
       console.log(cats)
       console.log(flow_prompt)
 
-      let prompt = `Analysiere dieses Bild sehr sorgfältig. Extrahiere ALLE Kundennummern (falls vorhanden) und ordne das Bild ALLEN zutreffenden Kategorien zu:
+      let prompt = `Analysiere dieses PDF sehr sorgfältig. Extrahiere ALLE Kundennummern (falls vorhanden) und ordne das PDF ALLEN zutreffenden Kategorien zu:
 
       `
       prompt += cats;
@@ -360,9 +360,9 @@ class OpenAIService {
       prompt += `
       
       WICHTIG: 
-      - Finde ALLE Kundennummern im Bild (meist 6-12 stellige Zahlen)
-      - Das Bild kann mehrere Kategorien gleichzeitig betreffen
-      - Prüfe alle Texte und Zahlen im Bild sorgfältig
+      - Finde ALLE Kundennummern in der PDF. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer.
+      - Die PDF kann mehrere Kategorien gleichzeitig betreffen
+      - Prüfe alle Texte und Zahlen in der PDF sorgfältig
 
       Antworte NUR im Format: 
       {
