@@ -48,7 +48,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' - Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
+        cats += (' * Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
       `) 
       }
 
@@ -70,7 +70,7 @@ class OpenAIService {
       `
 
       for(const f of flowData){
-        flow_prompt += (' - '+ f.category + ': [' + f.columns +  `]
+        flow_prompt += (' * '+ f.category + ': [' + f.columns +  `]
       `) 
       }
 
@@ -189,7 +189,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' - Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
+        cats += (' * Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
       `) 
       }
 
@@ -211,7 +211,7 @@ class OpenAIService {
       `
 
       for(const f of flowData){
-        flow_prompt += (' - '+ f.category + ': [' + f.columns +  `]
+        flow_prompt += (' * '+ f.category + ': [' + f.columns +  `]
       `) 
       }
 
@@ -323,7 +323,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' - Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
+        cats += (' * Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
       `) 
       }
 
@@ -345,7 +345,7 @@ class OpenAIService {
       `
 
       for(const f of flowData){
-        flow_prompt += (' - '+ f.category + ': [' + f.columns +  `]
+        flow_prompt += (' * '+ f.category + ': [' + f.columns +  `]
       `) 
       }
 
