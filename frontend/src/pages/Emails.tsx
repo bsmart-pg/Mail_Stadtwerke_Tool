@@ -113,6 +113,8 @@ const Emails: React.FC = () => {
   const [openNumberEditorEmailId, setOpenNumberEditorEmailId] = useState<string | null>(null);
   const [newCustomerNumber, setNewCustomerNumber] = useState('');
 
+  const forwardSuggestions = ['test@abc.de', 'test@def.de'];
+
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1178,9 +1180,7 @@ const Emails: React.FC = () => {
                                       {num}
                                       <button
                                         onClick={() => {
-                                          if (window.confirm(`Kundennummer "${num}" wirklich entfernen?`)) {
-                                            handleRemoveCustomerNumber(email, index);
-                                          }
+                                          handleRemoveCustomerNumber(email, index);
                                         }}
                                         className="ml-1 text-blue-700 hover:text-red-600"
                                       >
@@ -1192,7 +1192,7 @@ const Emails: React.FC = () => {
 
                                 <div className="relative inline-block">
                                   {openNumberEditorEmailId === email.id ? (
-                                    <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
+                                    <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
                                       <input
                                         autoFocus
                                         type="text"
@@ -1244,7 +1244,7 @@ const Emails: React.FC = () => {
                                 )}
 
                                 {openNumberEditorEmailId === email.id ? (
-                                  <div className="absolute z-10 top-7 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
+                                  <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
                                     <input
                                       autoFocus
                                       type="text"
@@ -1317,7 +1317,7 @@ const Emails: React.FC = () => {
                                     <PlusIcon className="mr-1 h-3 w-3" />
                                   </button>
                                     {openDropdownEmailId === email.id && (
-                                      <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
+                                      <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
                                         {categories.filter((item) => !email.all_categories?.includes(item)).map((cat) => (
                                           <div
                                             key={cat}
@@ -1357,7 +1357,7 @@ const Emails: React.FC = () => {
                                       <PlusIcon className="mr-1 h-3 w-3" />
                                     </button>
                                       {openDropdownEmailId === email.id && (
-                                        <div className="absolute z-10 mt-1 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
+                                        <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
                                           {categories.filter((item) => !email.all_categories?.includes(item)).map((cat) => (
                                             <div
                                               key={cat}
@@ -1450,14 +1450,17 @@ const Emails: React.FC = () => {
                               <div className="relative inline-block manual-forward-wrapper">
                                 
                                 {openManualForwardEmailId === email.id ? (
-                                  <div className="absolute z-10 top-8 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-64">
+                                  <div className="absolute z-50 bottom-full mb-2 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-64">
                                     <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
+
+                                    {/* Input + natives Dropdown per datalist */}
                                     <input
                                       autoFocus
                                       type="email"
                                       placeholder="name@example.com"
                                       value={manualForwardRecipient}
                                       onChange={(e) => setManualForwardRecipient(e.target.value)}
+                                      list={`forward-suggestions-${email.id}`}
                                       className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
                                       onKeyDown={async (e) => {
                                         if (e.key === 'Enter') {
@@ -1469,6 +1472,13 @@ const Emails: React.FC = () => {
                                         }
                                       }}
                                     />
+
+                                    <datalist id={`forward-suggestions-${email.id}`}> 
+                                      {forwardSuggestions.map((s) => (
+                                        <option key={s} value={s} />
+                                      ))}
+                                    </datalist>
+
                                     <div className="flex justify-end space-x-2">
                                       <button
                                         className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
@@ -1487,6 +1497,7 @@ const Emails: React.FC = () => {
                                     </div>
                                   </div>
                                 ) : (
+                                  /* Button bleibt wie bei dir */
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1499,6 +1510,7 @@ const Emails: React.FC = () => {
                                     Manuelle Weiterleitung
                                   </button>
                                 )}
+
                               </div>
                             </div>
                           </td>

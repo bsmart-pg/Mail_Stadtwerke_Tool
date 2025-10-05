@@ -35,6 +35,7 @@ export const checkExistingEmail = async (messageId: string): Promise<IncomingEma
     const { data, error } = await supabase
       .from('incoming_emails')
       .select()
+      .neq('status', "Gelöscht")
       .eq('message_id', encodedMessageId)
       .single();
 
@@ -451,20 +452,37 @@ export const deleteForwardingStatus = async (emailId: string) => {
 };
 
 
+// // Anfragen-Status aktualisieren
+// export const deleteEmail = async (emailId: string) => {
+//   try {
+//     // Aktualisiere zuerst den Status in der incoming_emails Tabelle
+//     const response = await supabase
+//       .from('incoming_emails')
+//       .delete()
+//       .eq('id', emailId);
+
+//   } catch (error) {
+//     console.error('Fehler beim Löschen von Mail ' + emailId + ":", error);
+//     throw error;
+//   }
+// };
+
 // Anfragen-Status aktualisieren
 export const deleteEmail = async (emailId: string) => {
   try {
     // Aktualisiere zuerst den Status in der incoming_emails Tabelle
-    const response = await supabase
+    const { error: emailUpdateError } = await supabase
       .from('incoming_emails')
-      .delete()
+      .update({ status: "Gelöscht", updated_at: new Date() })
       .eq('id', emailId);
 
+    if (emailUpdateError) throw emailUpdateError;
   } catch (error) {
-    console.error('Fehler beim Löschen von Mail ' + emailId + ":", error);
+    console.error('Fehler beim Aktualisieren des Anfrage-Status:', error);
     throw error;
   }
 };
+
 
 // Auto-Reply-Funktionen
 export const saveAutoReply = async (autoReplyData: Partial<AutoReply>): Promise<AutoReply | null> => {
@@ -537,6 +555,28 @@ export const getEmailsByCategory = async (category: string, from_date: string, t
 
 // Lade E-Mails mit Status
 export const getEmailsWithStatus = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('incoming_emails')
+      .select('*')
+      .neq('status', "Gelöscht")
+      .returns<IncomingEmail[]>();
+
+    if (error) {
+      console.error('Supabase Fehler:', error);
+      throw error;
+    }
+
+    console.log('Geladene E-Mails:', data?.length || 0);
+    return data || [];
+  } catch (error) {
+    console.error('Fehler beim Abrufen der E-Mails mit Status:', error);
+    return [];
+  }
+};
+
+// Lade E-Mails mit Status
+export const getAllEmailsWithStatus = async () => {
   try {
     const { data, error } = await supabase
       .from('incoming_emails')

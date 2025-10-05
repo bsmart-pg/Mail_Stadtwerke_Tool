@@ -5,7 +5,7 @@ import {
   ExclamationCircleIcon,
 } from '@heroicons/react/24/outline';
 
-import { getEmailsWithStatus, getCategories } from '../services/SupabaseService';
+import { getAllEmailsWithStatus, getCategories } from '../services/SupabaseService';
 import { EMAIL_STATUS, IncomingEmail } from '../types/supabase';
 
 import {
@@ -90,6 +90,32 @@ function lastNDays(n = 7, tz = TZ): { keys: string[]; labels: string[] } {
   return { keys, labels };
 }
 
+// Neu: Erzeuge Tages-Keys/Labels für beliebigen Bereich (inklusive beider Enden)
+function dayKeysForRange(startYMD: string, endYMD: string, tz = TZ) {
+  let s = startYMD;
+  let e = endYMD;
+  if (s && e && s > e) {
+    [s, e] = [e, s];
+  }
+  const start = s ? new Date(s + 'T00:00:00') : new Date(endYMD + 'T00:00:00');
+  const end = e ? new Date(e + 'T00:00:00') : new Date(startYMD + 'T00:00:00');
+
+  // wir gehen von 00:00 lokaler Zeit aus; für Labels nehmen wir das Date-Objekt
+  const keys: string[] = [];
+  const labels: string[] = [];
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  // Anzahl Tage inkl. beider Enden
+  const days = Math.max(0, Math.round((end.getTime() - start.getTime()) / dayMs)) + 1;
+  for (let i = 0; i < days; i++) {
+    const dt = new Date(start.getTime() + i * dayMs);
+    const key = localYMD(dt, tz);
+    keys.push(key);
+    labels.push(localShortLabel(dt, tz));
+  }
+  return { keys, labels };
+}
+
 // ----------------------------------------------------------------------------
 
 const Dashboard: React.FC = () => {
@@ -97,6 +123,70 @@ const Dashboard: React.FC = () => {
   const [allCategories, setAllCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+
+  // ---- Zeitfenster ---------------------------------------------------------
+  // Default: letzte 7 Tage (inkl. heute)
+  const dayMs = 24 * 60 * 60 * 1000;
+  const todayYMD = localYMD(new Date(), TZ);
+  const sevenDaysAgoYMD = localYMD(new Date(Date.now() - 6 * dayMs), TZ);
+
+  const [range, setRange] = useState<{ start: string; end: string }>({
+    start: sevenDaysAgoYMD,
+    end: todayYMD,
+  });
+
+  const setPreset = (preset: 'today' | '7d' | '30d' | 'week' | 'month' | 'all') => {
+    const now = new Date();
+    const end = localYMD(now, TZ);
+
+    if (preset === 'today') {
+      setRange({ start: end, end });
+      return;
+    }
+    if (preset === '7d') {
+      setRange({ start: localYMD(new Date(Date.now() - 6 * dayMs), TZ), end });
+      return;
+    }
+    if (preset === '30d') {
+      setRange({ start: localYMD(new Date(Date.now() - 29 * dayMs), TZ), end });
+      return;
+    }
+    if (preset === 'week') {
+      // Montag als Wochenstart (de-DE)
+      const wd = new Intl.DateTimeFormat('de-DE', { timeZone: TZ, weekday: 'short' })
+        .formatToParts(now)
+        .find(p => p.type === 'weekday')?.value || '';
+      // hole lokalen Wochentag-Index: Mo=1..So=7
+      const weekdayMap: Record<string, number> = {
+        'Mo.': 1, 'Di.': 2, 'Mi.': 3, 'Do.': 4, 'Fr.': 5, 'Sa.': 6, 'So.': 7,
+      };
+      const idx = weekdayMap[wd] ?? 1;
+      const monday = new Date(Date.now() - (idx - 1) * dayMs);
+      setRange({ start: localYMD(monday, TZ), end });
+      return;
+    }
+    if (preset === 'month') {
+      const y = now.getFullYear();
+      const m = now.getMonth(); // 0-basiert
+      const firstOfMonth = new Date(y, m, 1);
+      setRange({ start: localYMD(firstOfMonth, TZ), end });
+      return;
+    }
+    if (preset === 'all') {
+      // "alles" heißt: keine Einschränkung -> wir setzen start leer und end = heute
+      setRange({ start: '', end: '' });
+      return;
+    }
+  };
+
+  const inSelectedRange = (date: Date | string) => {
+    const key = localYMD(date, TZ);
+    const hasStart = !!range.start;
+    const hasEnd = !!range.end;
+    if (hasStart && key < range.start) return false;
+    if (hasEnd && key > range.end) return false;
+    return true;
+  };
 
   // Chart category filter (multi-select)
   const categoriesWithOther = useMemo(
@@ -113,7 +203,7 @@ const Dashboard: React.FC = () => {
         setError('');
 
         const [emailData, categoryData] = await Promise.all([
-          getEmailsWithStatus(),
+          getAllEmailsWithStatus(),
           getCategories(),
         ]);
 
@@ -145,28 +235,32 @@ const Dashboard: React.FC = () => {
     [emails]
   );
 
-  // Stats
-  const newEmails = useMemo(
-    () => visibleEmails.filter((e) => isWithinLastHours(e.received_date, 24)).length,
-    [visibleEmails]
-  );
-  const categorizedCount = useMemo(
-    () => visibleEmails.filter(isCategorized).length,
-    [visibleEmails]
-  );
-  const unrecognizableCount = useMemo(
-    () => visibleEmails.filter(isUnrecognizable).length,
-    [visibleEmails]
-  );
-  const missingCustomerNumberCount = useMemo(
-    () => visibleEmails.filter(isCustomerNumberMissing).length,
-    [visibleEmails]
+  // ---- apply Zeitfilter ----------------------------------------------------
+  const filteredEmails = useMemo(
+    () => visibleEmails.filter((e) => inSelectedRange(e.received_date)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleEmails, range.start, range.end]
   );
 
-  // Category distribution from DB categories + always include "Sonstiges"
+  // Stats (ALLE bezogen auf gefilterte Mails)
+  const totalInRange = filteredEmails.length;
+  const categorizedCount = useMemo(
+    () => filteredEmails.filter(isCategorized).length,
+    [filteredEmails]
+  );
+  const unrecognizableCount = useMemo(
+    () => filteredEmails.filter(isUnrecognizable).length,
+    [filteredEmails]
+  );
+  const missingCustomerNumberCount = useMemo(
+    () => filteredEmails.filter(isCustomerNumberMissing).length,
+    [filteredEmails]
+  );
+
+  // Category distribution from DB categories + always include "Sonstiges" (gefiltert)
   const categoryBuckets: CategoryBucket[] = useMemo(() => {
     const buckets = categoriesWithOther.map((catName) => {
-      const count = visibleEmails.reduce((acc, e) => {
+      const count = filteredEmails.reduce((acc, e) => {
         const cats: string[] =
           Array.isArray((e as any).all_categories) && (e as any).all_categories.length > 0
             ? (e as any).all_categories
@@ -178,31 +272,39 @@ const Dashboard: React.FC = () => {
     });
 
     return buckets.sort((a, b) => b.count - a.count);
-  }, [categoriesWithOther, visibleEmails]);
+  }, [categoriesWithOther, filteredEmails]);
 
   const maxCategoryCount =
     categoryBuckets.reduce((m, c) => Math.max(m, c.count), 0) || 1;
 
-  // ---- Last 7 days bar chart ----------------------------------------------
+  // ---- Bar-Chart über ausgewählten Zeitraum --------------------------------
 
-  const { keys: last7Keys, labels: last7Labels } = useMemo(
-    () => lastNDays(7, TZ),
-    []
-  );
+  // Wenn kein Start/Ende gesetzt ist ("Alles"), nehmen wir last 7 days der Daten,
+  // damit das Chart dennoch sinnvoll ist.
+  const fallback7 = useMemo(() => lastNDays(7, TZ), []);
+  const { keys: chartKeys, labels: chartLabels } = useMemo(() => {
+    if (!range.start || !range.end) {
+      // "Alles" → wenn du magst: anhand min/max Datum aus Emails dynamisch bauen
+      // einfache Variante: zeige die letzten 7 Tage
+      return fallback7;
+    }
+    return dayKeysForRange(range.start, range.end, TZ);
+  }, [range.start, range.end, fallback7]);
 
-  // Emails included in the chart after category filter
+  // Emails included in the chart after category filter + Zeitraum
   const chartEmails = useMemo(() => {
-    if (chartCategoryFilter.length === 0) return visibleEmails; // no filter -> all
-    return visibleEmails.filter((e) => {
+    const base = filteredEmails;
+    if (chartCategoryFilter.length === 0) return base;
+    return base.filter((e) => {
       const cats: string[] =
         Array.isArray((e as any).all_categories) && (e as any).all_categories.length > 0
           ? (e as any).all_categories
           : (e.category ? [e.category] : []);
       return cats.some((c) => chartCategoryFilter.includes(c));
     });
-  }, [visibleEmails, chartCategoryFilter]);
+  }, [filteredEmails, chartCategoryFilter]);
 
-  // Build count map by Berlin-local day using filtered emails
+  // Build count map by Berlin-local day using filtered & category-selected emails
   const dayCountsMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const e of chartEmails) {
@@ -213,9 +315,9 @@ const Dashboard: React.FC = () => {
   }, [chartEmails]);
 
   const barData = useMemo(() => {
-    const counts = last7Keys.map((k) => dayCountsMap.get(k) || 0);
+    const counts = chartKeys.map((k) => dayCountsMap.get(k) || 0);
     return {
-      labels: last7Labels,
+      labels: chartLabels,
       datasets: [
         {
           label: 'Eingänge',
@@ -228,7 +330,7 @@ const Dashboard: React.FC = () => {
         },
       ],
     };
-  }, [dayCountsMap, last7Keys, last7Labels]);
+  }, [dayCountsMap, chartKeys, chartLabels]);
 
   const barOptions = useMemo(
     () => ({
@@ -278,6 +380,61 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
+      {/* ---- Zeitfilter UI -------------------------------------------------- */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Startdatum
+              </label>
+              <input
+                type="date"
+                className="border rounded-md px-3 py-2 w-full"
+                value={range.start}
+                onChange={(e) => setRange(r => ({ ...r, start: e.target.value }))}
+                max={range.end || todayYMD}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Enddatum
+              </label>
+              <input
+                type="date"
+                className="border rounded-md px-3 py-2 w-full"
+                value={range.end}
+                onChange={(e) => setRange(r => ({ ...r, end: e.target.value }))}
+                min={range.start || ''}
+                max={todayYMD}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-600 mr-1">Schnellauswahl:</span>
+            <button onClick={() => setPreset('today')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
+              Heute
+            </button>
+            <button onClick={() => setPreset('7d')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
+              Letzte 7 Tage
+            </button>
+            <button onClick={() => setPreset('30d')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
+              Letzte 30 Tage
+            </button>
+            <button onClick={() => setPreset('week')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
+              Diese Woche
+            </button>
+            <button onClick={() => setPreset('month')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
+              Dieser Monat
+            </button>
+            <button onClick={() => setPreset('all')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
+              Alles
+            </button>
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {[...Array(4)].map((_, i) => (
@@ -290,8 +447,8 @@ const Dashboard: React.FC = () => {
             {[
               {
                 id: 1,
-                name: 'Neue E-Mails (24h)',
-                value: newEmails.toString(),
+                name: 'E-Mails im Zeitraum',
+                value: totalInRange.toString(),
                 icon: EnvelopeIcon,
                 color: 'bg-blue-100 text-blue-600',
               },
@@ -309,13 +466,13 @@ const Dashboard: React.FC = () => {
                 icon: ExclamationCircleIcon,
                 color: 'bg-red-100 text-red-600',
               },
-              {
-                id: 4,
-                name: 'Kundennummer fehlend',
-                value: missingCustomerNumberCount.toString(),
-                icon: ExclamationCircleIcon,
-                color: 'bg-orange-100 text-orange-600',
-              },
+              // {
+              //   id: 4,
+              //   name: 'Kundennummer fehlend',
+              //   value: missingCustomerNumberCount.toString(),
+              //   icon: ExclamationCircleIcon,
+              //   color: 'bg-orange-100 text-orange-600',
+              // },
             ].map((stat) => {
               const Icon = stat.icon;
               return (
@@ -334,10 +491,12 @@ const Dashboard: React.FC = () => {
             })}
           </div>
 
-          {/* Last 7 days chart + category filter */}
+          {/* Last N days chart (basierend auf gewähltem Zeitraum) + category filter */}
           <div className="bg-white rounded-lg shadow p-6 mb-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3">
-              <h2 className="text-xl font-semibold">Eingänge – letzte 7 Tage</h2>
+              <h2 className="text-xl font-semibold">
+                Eingänge – {range.start && range.end ? `${range.start} bis ${range.end}` : 'Zeitraum'}
+              </h2>
 
               {/* Category filter pills */}
               <div className="flex flex-wrap items-center gap-2">

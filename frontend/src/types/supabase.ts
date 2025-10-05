@@ -5,7 +5,8 @@ export const EMAIL_STATUS = {
   FEHLENDE_KUNDENNUMMER: 'fehlende-kundennummer',
   KUNDENNUMMER_ANGEFRAGT: 'kundennummer-angefragt',
   WEITERGELEITET: "Weitergeleitet",
-  AUSGEBLENDET: "Ausgeblendet"
+  AUSGEBLENDET: "Ausgeblendet", 
+  GELOESCHT: "Gelöscht"
 } as const;
 
 export type EmailStatus = typeof EMAIL_STATUS[keyof typeof EMAIL_STATUS];
