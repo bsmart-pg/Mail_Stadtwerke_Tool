@@ -3,6 +3,11 @@ import axios from 'axios';
 
 const GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0';
 const inboxEmailAdress = import.meta.env.VITE_INBOX_EMAIL_ADRESS || '';
+const inboxEmailAdress2 = import.meta.env.VITE_INBOX_EMAIL_ADRESS2 || '';
+const inboxEmailAdress3 = import.meta.env.VITE_INBOX_EMAIL_ADRESS3 || '';
+const inboxEmailAdress4 = import.meta.env.VITE_INBOX_EMAIL_ADRESS4 || '';
+
+const inboxEmailList = [inboxEmailAdress, inboxEmailAdress2, inboxEmailAdress3, inboxEmailAdress4];
 
 // NEW: optional cutoff from env (ISO 8601)
 const ENV_SYNC_START_UTC =
@@ -223,8 +228,8 @@ export const GraphService = {
 
       // what we need for the list view; attachments expanded later on demand
       const SELECT_FIELDS = [
-        'id','subject','from','bodyPreview',
-        'receivedDateTime','lastModifiedDateTime',
+        'id','subject','from','toRecipients','ccRecipients','bccRecipients',
+        'bodyPreview','receivedDateTime','lastModifiedDateTime',
         'hasAttachments','parentFolderId'
       ].join(',');
 
@@ -237,28 +242,37 @@ export const GraphService = {
         }
       }
 
-      let url =
-        `/users/${inboxEmailAdress}/mailFolders/inbox/messages` +
-        `?$select=${encodeURIComponent(SELECT_FIELDS)}` +
-        `&$orderby=receivedDateTime desc` +
-        `&$top=${maxResults}` +
-        filterPart;
+      let items: any[] = [];
+      for(const inbox of inboxEmailList){
+        if (inbox === "") {
+          continue;
+        }
+        console.log("getting emails for: " + inbox)
 
-      const items: any[] = [];
-      // ask Graph nicely to send up to maxResults per page
-      const headers = { Prefer: `odata.maxpagesize=${maxResults}` };
+        let url =
+          `/users/${inbox}/mailFolders/inbox/messages` +
+          `?$select=${encodeURIComponent(SELECT_FIELDS)}` +
+          `&$orderby=receivedDateTime desc` +
+          `&$top=${maxResults}` +
+          filterPart;
 
-      while (url) {
-        const res = await client.get(url, { headers });
-        const data = res.data ?? {};
-        const batch = Array.isArray(data.value) ? data.value : [];
-        items.push(...batch);
+        
+        // ask Graph nicely to send up to maxResults per page
+        const headers = { Prefer: `odata.maxpagesize=${maxResults}` };
 
-        // stop early if we already have a comfortable amount (e.g., 200 total)
-        if (items.length >= 200) break;
+        while (url) {
+          const res = await client.get(url, { headers });
+          const data = res.data ?? {};
+          const batch = Array.isArray(data.value) ? data.value : [];
+          items.push(...batch);
 
-        url = data['@odata.nextLink'] ?? null;
+          // stop early if we already have a comfortable amount (e.g., 200 total)
+          if (items.length >= 200) break;
+
+          url = data['@odata.nextLink'] ?? null;
+        }
       }
+        
 
       return items;
     } catch (err) {
@@ -287,12 +301,12 @@ export const GraphService = {
   /**
    * Ruft eine bestimmte E-Mail mit vollständigem HTML-Body anhand ihrer ID ab
    */
-  getEmailContent: async (emailId: string) => {
+  getEmailContent: async (emailId: string, to_recipients:string) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
       const encodedEmailId = encodeURIComponent(emailId);
       const response = await client.get(
-        `/users/${inboxEmailAdress}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`
+        `/users/${to_recipients}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`
       );
 
       if (response.data.attachments) {
@@ -334,7 +348,8 @@ export const GraphService = {
     body: string,
     toRecipients: string[],
     mailattachments: Array<Object> = [],
-    replyAdresses: string[] = []
+    replyAdresses: string[] = [],
+    fromEmail: string
   ) => {
     try {
       const client = await GraphService.getAuthenticatedClient();
@@ -415,7 +430,7 @@ export const GraphService = {
 
       console.log('Sende E-Mail an:', toRecipients);
       const response = await client.post(
-        `/users/${inboxEmailAdress}/sendMail`,
+        `/users/${fromEmail}/sendMail`,
         mailBody
       );
       console.log('E-Mail erfolgreich gesendet');
@@ -444,14 +459,14 @@ export const GraphService = {
   /**
    * Lädt den Inhalt eines Anhangs herunter
    */
-  getAttachmentContent: async (messageId: string, attachmentId: string) => {
+  getAttachmentContent: async (messageId: string, attachmentId: string, to_recipients:string) => {
     try {
       const token = await MsalService.getAccessToken();
       const encodedMessageId = encodeURIComponent(messageId);
       const encodedAttachmentId = encodeURIComponent(attachmentId);
 
       const response = await fetch(
-        `https://graph.microsoft.com/v1.0/users/${inboxEmailAdress}/messages/${encodedMessageId}/attachments/${encodedAttachmentId}/$value`,
+        `https://graph.microsoft.com/v1.0/users/${to_recipients}/messages/${encodedMessageId}/attachments/${encodedAttachmentId}/$value`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 

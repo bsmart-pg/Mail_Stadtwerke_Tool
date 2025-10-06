@@ -13,6 +13,7 @@ interface EmailEditorProps {
   originalDate: string;
   originalSender: string;
   defaultTemplate: string;
+  from_email: string
 }
 
 const EmailEditor: React.FC<EmailEditorProps> = ({
@@ -25,7 +26,8 @@ const EmailEditor: React.FC<EmailEditorProps> = ({
   originalContent,
   originalDate,
   originalSender,
-  defaultTemplate
+  defaultTemplate,
+  from_email
 }) => {
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
@@ -63,7 +65,11 @@ const EmailEditor: React.FC<EmailEditorProps> = ({
       setSending(true);
       setError('');
 
-      await GraphService.sendEmail(subject, message, [to]);
+      console.log("dsagfhgndfsdasgbnhfdfbsdsafgnhbf")
+
+      console.log(from_email)
+
+      await GraphService.sendEmail(subject, message, [to], undefined, undefined, from_email );
       
       onSend();
       onClose();

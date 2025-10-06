@@ -9,6 +9,7 @@ import {
   ArrowUturnLeftIcon
 } from '@heroicons/react/24/outline';
 import GraphService from '../services/GraphService';
+import SupabaseService from '../services/SupabaseService';
 
 const baseURL = import.meta.env.VITE_API_BASE;
 
@@ -50,6 +51,7 @@ const replaceCidSrcs = (html: string, lookup: Record<string, string>) =>
 interface EmailDetailProps {
   emailId: string;
   messageId: string;
+  to_recipient: string;
   onClose: () => void;
   onAnalysisComplete?: (result: { customerNumber?: string; category?: string }) => void;
 }
@@ -85,7 +87,7 @@ interface EmailData {
   attachments?: Attachment[];
 }
 
-const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, onClose, onAnalysisComplete }) => {
+const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, to_recipient,onClose, onAnalysisComplete }) => {
   const [email, setEmail] = useState<EmailData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
@@ -255,7 +257,7 @@ useEffect(() => {
           const blob = base64ToBlob((att as any).contentBytes, att.contentType);
           urlForButtons = URL.createObjectURL(blob);
         } else {
-          const buf = await GraphService.getAttachmentContent(messageId, att.id);
+          const buf = await GraphService.getAttachmentContent(messageId, att.id, to_recipient);
           const blob = new Blob([buf], { type: att.contentType });
           urlForButtons = URL.createObjectURL(blob);
         }
@@ -305,7 +307,7 @@ useEffect(() => {
       try {
         setLoading(true);
         setError('');
-        const emailData = await GraphService.getEmailContent(messageId);
+        const emailData = await GraphService.getEmailContent(messageId, to_recipient);
         setEmail(emailData);
       } catch (error) {
         console.error('Fehler beim Laden des E-Mail-Inhalts:', error);
@@ -318,7 +320,7 @@ useEffect(() => {
     if (messageId) {
       fetchEmailContent();
     }
-  }, [messageId]);
+  }, [messageId, to_recipient]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -456,7 +458,7 @@ useEffect(() => {
                   <button
                     onClick={async () => {
                       try {
-                        const content = await GraphService.getAttachmentContent(messageId, attachment.id);
+                        const content = await GraphService.getAttachmentContent(messageId, attachment.id, to_recipient);
                         const blob = new Blob([content], { type: attachment.contentType });
                         const downloadUrl = URL.createObjectURL(blob);
                         const a = document.createElement('a');

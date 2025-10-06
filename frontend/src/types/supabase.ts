@@ -33,6 +33,7 @@ export interface IncomingEmail {
   all_customer_numbers: string[] | null;
   all_categories: string[] | null;
   forwarding_completed: boolean;
+  to_recipients?: string | null;
 }
 
 export interface AutoReply {

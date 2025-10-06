@@ -63,7 +63,7 @@ async function buildForwardableContent(email: any): Promise<{ html: string; atta
     let contentBytes: string | null = att.contentBytes || null;
     if (!contentBytes && att.id) {
       try {
-        const buf = await GraphService.getAttachmentContent(email.id, att.id);
+        const buf = await GraphService.getAttachmentContent(email.id, att.id, email.to_recipients);
         contentBytes = arrayBufferToBase64(buf); 
         // contentBytes = btoa(String.fromCharCode(...new Uint8Array(buf)));
       } catch {
@@ -126,14 +126,14 @@ class AnalysisService {
   /**
    * Startet die Hintergrund-Analyse für eine E-Mail
    */
-  async startBackgroundAnalysis(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
+  async startBackgroundAnalysis(emailId: string, messageId: string, to_recipients: string, forwardingEmail: string): Promise<void> {
     if (this.analysisQueue.has(messageId)) return;
     this.analysisQueue.add(messageId);
     try {
       console.log(`Starte Hintergrund-Analyse für E-Mail ${emailId}`);
 
       // Hole die vollständige E-Mail von Microsoft Graph mit allen Anhängen
-      const fullEmail = await GraphService.getEmailContent(messageId);
+      const fullEmail = await GraphService.getEmailContent(messageId, to_recipients);
       
       // Lade alle Bild-Anhänge vollständig (base64)
       if (fullEmail.hasAttachments && fullEmail.attachments && Array.isArray(fullEmail.attachments)) {
@@ -146,7 +146,7 @@ class AnalysisService {
           if (attachment.contentType && attachment.contentType.startsWith('image/') && attachment.id) {
             try {
               console.log(`Lade base64 für Bild-Attachment: ${attachment.name}`);
-              const buffer = await GraphService.getAttachmentContent(fullEmail.id, attachment.id);
+              const buffer = await GraphService.getAttachmentContent(fullEmail.id, attachment.id, fullEmail.to_recipients);
               // const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
               const base64 = arrayBufferToBase64(buffer);
               attachment.contentBytes = base64;
@@ -227,6 +227,8 @@ class AnalysisService {
 
       const email = await getEmailById(emailId);
 
+      const to_recipients = (email && email.to_recipients) ? email.to_recipients: "";
+
       const combinedResult = {
         customerNumber: email?.customer_number,
         category: email?.category,
@@ -238,7 +240,7 @@ class AnalysisService {
       if (combinedResult.customerNumber && combinedResult.category && 
           combinedResult.allCustomerNumbers.length > 0 && combinedResult.allCategories.length > 0) {
         console.log(`Starte Weiterleitungsprozess - Kundennummer und Kategorie gefunden`);
-        await this.processForwarding(emailId, messageId, combinedResult, forwardingEmail);
+        await this.processForwarding(emailId, messageId, combinedResult, to_recipients,  forwardingEmail);
       } else {
         console.log(`Keine Weiterleitung - unvollständige Analyse:`, {
           customerNumber: combinedResult.customerNumber,
@@ -259,15 +261,15 @@ class AnalysisService {
     }
   }
 
-  async startManualForwarding(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
+  async startManualForwarding(emailId: string, messageId: string, to_recipients: string, forwardingEmail: string): Promise<void> {
     try {
 
       console.log(`Start Weiterleitung für E-Mail ${emailId}`);
 
-      const email = await GraphService.getEmailContent(messageId);
+      const email = await GraphService.getEmailContent(messageId, to_recipients);
      
       console.log(`Starte Manuellen Weiterleitungsprozess`);
-      await this.forwardManualEmailWithTags(email, 1,1 , forwardingEmail);
+      await this.forwardManualEmailWithTags(email, 1,1 , forwardingEmail, to_recipients);
 
     } catch (error) {
       console.error(`Fehler bei Weiterleitung für E-Mail ${emailId}:`, error);
@@ -374,7 +376,7 @@ class AnalysisService {
               console.log(`Verwende bereits geladene base64-Daten für ${attachment.name}`);
             } else if (attachment.id) {
               console.log(`Lade base64-Inhalt für ${attachment.name}`);
-              const buffer = await GraphService.getAttachmentContent(email.id, attachment.id);
+              const buffer = await GraphService.getAttachmentContent(email.id, attachment.id, email.to_recipients);
               base64 = arrayBufferToBase64(buffer);
               // base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
             } else {
@@ -422,7 +424,7 @@ class AnalysisService {
               console.log(`Verwende bereits geladene base64-Daten für ${attachment.name}`);
             } else if (attachment.id) {
               console.log(`Lade base64-Inhalt für ${attachment.name}`);
-              const buffer = await GraphService.getAttachmentContent(email.id, attachment.id);
+              const buffer = await GraphService.getAttachmentContent(email.id, attachment.id, email.to_recipients);
               base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
             } else {
               console.warn(`PDF-Attachment ${attachment.name} hat keine ID und keine base64-Daten - überspringe`);
@@ -662,10 +664,11 @@ class AnalysisService {
       allCustomerNumbers: string[];
       allCategories: string[];
     },
+    to_recipients: string,
     forwardingEmail: string,
   ): Promise<void> {
     try {
-      console.log(`Starte Weiterleitungsprozess für E-Mail ${emailId}`);
+      console.log(`Starte Weiterleitungsprozess für E-Mail ${emailId} : from ${to_recipients}`);
 
       // Erstelle alle Kombinationen von Kundennummern und Kategorien
       const combinations = this.createForwardingCombinations(analysisResult);
@@ -673,14 +676,14 @@ class AnalysisService {
       console.log(`Erstelle ${combinations.length} Weiterleitungen:`, combinations);
 
       // Hole die vollständige E-Mail für die Weiterleitung
-      const fullEmail = await GraphService.getEmailContent(messageId);
+      const fullEmail = await GraphService.getEmailContent(messageId, to_recipients);
 
       // Sende für jede Kombination eine separate Weiterleitung
       for (let i = 0; i < combinations.length; i++) {
         const combination = combinations[i];
         
         try {
-          await this.forwardEmailWithTags(fullEmail, combination, i + 1, combinations.length, forwardingEmail);
+          await this.forwardEmailWithTags(fullEmail, combination, i + 1, combinations.length, forwardingEmail, to_recipients);
           console.log(`Weiterleitung ${i + 1}/${combinations.length} erfolgreich gesendet`);
         } catch (error) {
           console.error(`Fehler bei Weiterleitung ${i + 1}/${combinations.length}:`, error);
@@ -727,7 +730,8 @@ class AnalysisService {
     combination: { customerNumber: string | null; category: Array<string> }, 
     index: number, 
     total: number,
-    forwardingEmail: string
+    forwardingEmail: string,
+    from_email: string
   ): Promise<void> {
     console.log("following combo")
     console.log(combination)
@@ -802,7 +806,8 @@ class AnalysisService {
         forwardBody,
         [forwardingEmail],
         attachments,                                  // ✅ include inline + regular attachments
-        [email.from?.emailAddress?.address].filter(Boolean) as string[]
+        [email.from?.emailAddress?.address].filter(Boolean) as string[],
+        from_email
       );
       
       console.log(`✅ Weiterleitung ${index}/${total} erfolgreich an ${targetRecipients.join(', ')} gesendet`);
@@ -817,7 +822,8 @@ class AnalysisService {
     email: any, 
     index: number, 
     total: number,
-    forwardingEmail: string
+    forwardingEmail: string,
+    from_email: string
   ): Promise<void> {
     console.log("following combo")
     try {
@@ -860,13 +866,17 @@ class AnalysisService {
         total: total,
         recipients: targetRecipients
       });
+
+      console.log("from_email: " + from_email)
       
 
       await GraphService.sendEmail(
         subject, 
         body, 
         targetRecipients, 
-        attachments
+        attachments,
+        undefined,
+        from_email
       );
       // if (email.hasAttachments && email.attachments && Array.isArray(email.attachments)) {
       //   console.log(`E-Mail hat ${email.attachments.length} Anhänge zur Weiterleitung...`);

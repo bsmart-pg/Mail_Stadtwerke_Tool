@@ -4,7 +4,9 @@ export const EMAIL_STATUS = {
   UNKATEGORISIERT: 'unkategorisiert',
   FEHLENDE_KUNDENNUMMER: 'fehlende-kundennummer',
   KUNDENNUMMER_ANGEFRAGT: 'kundennummer-angefragt',
-  WEITERGELEITET: "Weitergeleitet"
+  WEITERGELEITET: "Weitergeleitet",
+  AUSGEBLENDET: "Ausgeblendet", 
+  GELOESCHT: "Gelöscht"
 } as const;
 
 export type EmailStatus = typeof EMAIL_STATUS[keyof typeof EMAIL_STATUS];
@@ -31,6 +33,7 @@ export interface IncomingEmail {
   all_customer_numbers: string[] | null;
   all_categories: string[] | null;
   forwarding_completed: boolean;
+  to_recipients?: string | null;
 }
 
 export interface AutoReply {

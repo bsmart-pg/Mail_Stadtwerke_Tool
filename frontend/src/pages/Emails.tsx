@@ -357,10 +357,10 @@ const Emails: React.FC = () => {
       return () => clearInterval(interval);
   }, [outlookConnected]);
   
-  const handleEmailClick = async(emailId: string, messageId: string) => {
+  const handleEmailClick = async(emailId: string, messageId: string, to_recipients: string) => {
     console.log("CLICKLCICKLCKICK")
     try {
-      await GraphService.getEmailContent(messageId);
+      await GraphService.getEmailContent(messageId, to_recipients);
       setSelectedEmail(emails.find(e => e.id === emailId) || null);
       setSelectedMessageId(messageId);
     } catch (error) {
@@ -449,6 +449,8 @@ const Emails: React.FC = () => {
         };
       }
 
+      const toRecipientsArr = (outlookEmail.toRecipients ?? [])
+
       const processedEmail: DisplayEmail = {
         id: uuidv4(),
         message_id: outlookEmail.id,
@@ -478,7 +480,8 @@ const Emails: React.FC = () => {
         }),
         all_customer_numbers: null,
         all_categories: null,
-        forwarding_completed: false
+        forwarding_completed: false,
+        to_recipients: toRecipientsArr[0].emailAddress.address
       };
 
       const savedEmail = await saveEmailData({
@@ -497,7 +500,8 @@ const Emails: React.FC = () => {
         forwarded: processedEmail.forwarded,
         analysis_completed: processedEmail.analysis_completed,
         text_analysis_result: processedEmail.text_analysis_result,
-        image_analysis_result: processedEmail.image_analysis_result
+        image_analysis_result: processedEmail.image_analysis_result,
+        to_recipients: processedEmail.to_recipients ?? "",
       });
 
       if (!savedEmail) {
@@ -508,9 +512,10 @@ const Emails: React.FC = () => {
       //   .catch(error => {
       //     console.error('Fehler bei Hintergrund-Analyse:', error);
       //   });
-      
+
+
       if (!savedEmail.analysis_completed) {
-        analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
+        analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, toRecipientsArr[0].emailAddress.address, settings.forwardingEmail)
           .catch(err => console.error('Fehler bei Hintergrund-Analyse:', err));
       }
 
@@ -527,7 +532,8 @@ const Emails: React.FC = () => {
         hasAttachments: outlookEmail.hasAttachments || false,
         attachments: outlookEmail.attachments || [],
         customer_number: savedEmail.customer_number ?? null,
-        category: savedEmail.category ?? null
+        category: savedEmail.category ?? null,
+        to_recipients: savedEmail.to_recipients ?? "",
       };
 
     } catch (error) {
@@ -551,6 +557,9 @@ const Emails: React.FC = () => {
       const outlookEmails = await GraphService.getInboxMails(300);
       console.log("outlookEmails")
       console.log(outlookEmails)
+      for(const asd of outlookEmails){
+        console.log(asd.toRecipients[0].emailAddress.address)
+      }
 
       const snapshotIds = new Set(outlookEmails.map((m: any) => m.id));
       
@@ -800,7 +809,9 @@ const Emails: React.FC = () => {
         return;
       }
 
-      analysisService.startManualForwarding(email.id, email.message_id, to)
+      const to_recipients = (email && email.to_recipients) ? email.to_recipients : ""
+
+      analysisService.startManualForwarding(email.id, email.message_id, to_recipients, to)
         .catch(error => {
           console.error('Fehler bei Hintergrund-Analyse (manuelle Weiterleitung):', error);
         });
@@ -1163,7 +1174,19 @@ const Emails: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap w-60 max-w-60">
-                            <div className="text-sm font-medium text-gray-900 whitespace-normal break-words"  onClick={() => handleEmailClick(email.id, email.message_id)}>{email.subject}</div>
+                            <div className="text-sm font-medium text-gray-900 whitespace-normal break-words"  onClick={() => handleEmailClick(email.id, email.message_id, email.to_recipients)}>{email.subject}</div>
+                            {email.to_recipients && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                  <span
+                                    key={`${email.id}-rcp`}
+                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                                    title={email.to_recipients}
+                                  >
+                                    {email.to_recipients}
+                                  </span>
+                                
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500">{email.sender}</div>
@@ -1543,6 +1566,7 @@ const Emails: React.FC = () => {
         <EmailDetail
           emailId={selectedEmail.id}
           messageId={selectedMessageId}
+          to_recipient={(selectedEmail.to_recipients)? selectedEmail.to_recipients: ""}
           onClose={handleCloseEmailDetail}
           onAnalysisComplete={handleAnalysisComplete}
         />
@@ -1561,6 +1585,7 @@ const Emails: React.FC = () => {
           originalDate={emailToEdit.date}
           originalSender={emailToEdit.sender}
           defaultTemplate={emailToEdit.customer_number? settings.defaultUnrecognizableReplyTemplate : settings.defaultReplyTemplate }
+          from_email = {(emailToEdit && emailToEdit.to_recipients) ? emailToEdit.to_recipients : ""}
         />
       )}
     </div>
