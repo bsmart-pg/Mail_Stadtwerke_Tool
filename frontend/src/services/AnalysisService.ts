@@ -297,13 +297,14 @@ class AnalysisService {
       // );
 
       const email_subject = email.subject || ''
-      const email_body = email.body?.content || ''
-      const response = await fetch(baseURL +'/api/analyze-text', {
+      const email_body_for_analysis =
+        email.uniqueBody?.content || email.body?.content || '';
+      const response = await fetch(baseURL + '/api/analyze-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email_subject,
-          email_body
+          email_body: email_body_for_analysis
         })
       });
 

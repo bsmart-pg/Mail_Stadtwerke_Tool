@@ -298,6 +298,48 @@ export const GraphService = {
     }
   },
 
+  async markMessageRead(messageId: string, mailbox: string) {
+    const client = await GraphService.getAuthenticatedClient();
+    const encodedId = encodeURIComponent(messageId);
+    await client.patch(
+      `/users/${mailbox}/messages/${encodedId}`,
+      { isRead: true }
+      // optionally: , { headers: { 'If-Match': etag } }
+    );
+  },
+  
+  /** Create a folder under root (MsgFolderRoot) and return its id */
+  async createFolder(mailbox: string, displayName: string): Promise<string> {
+    const client = await GraphService.getAuthenticatedClient();
+    const { data } = await client.post(`/users/${mailbox}/mailFolders`, { displayName });
+    return data?.id as string;
+  },
+
+  async findFolderIdByName(mailbox: string, displayName: string): Promise<string | null> {
+    const client = await GraphService.getAuthenticatedClient();
+    // Use $filter to avoid listing everything
+    const { data } = await client.get(
+      `/users/${mailbox}/mailFolders?$filter=displayName eq '${encodeURIComponent(displayName)}'&$top=1`
+    );
+    const hit = Array.isArray(data?.value) ? data.value[0] : null;
+    return hit?.id ?? null;
+  },
+
+    /** Ensure the folder exists under root; return its id */
+  async ensureFolder(mailbox: string, displayName: string): Promise<string> {
+    const existing = await GraphService.findFolderIdByName(mailbox, displayName);
+    if (existing) return existing;
+    return await GraphService.createFolder(mailbox, displayName);
+  },
+
+  /** Move a message to destination folder id */
+  async moveMessage(messageId: string, mailbox: string, destinationFolderId: string) {
+    const client = await GraphService.getAuthenticatedClient();
+    const encodedId = encodeURIComponent(messageId);
+    await client.post(`/users/${mailbox}/messages/${encodedId}/move`, { destinationId: destinationFolderId });
+  },
+
+
   /**
    * Ruft eine bestimmte E-Mail mit vollständigem HTML-Body anhand ihrer ID ab
    */
@@ -306,7 +348,7 @@ export const GraphService = {
       const client = await GraphService.getAuthenticatedClient();
       const encodedEmailId = encodeURIComponent(emailId);
       const response = await client.get(
-        `/users/${to_recipients}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`
+        `/users/${to_recipients}/messages/${encodedEmailId}?$select=id,subject,bodyPreview,body,uniqueBody,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments&$expand=attachments`
       );
 
       if (response.data.attachments) {

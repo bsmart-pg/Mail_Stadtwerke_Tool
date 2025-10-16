@@ -34,6 +34,34 @@ import { IncomingEmail, EMAIL_STATUS, EmailStatus } from '../types/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { analysisService } from '../services/AnalysisService';
 
+const PROCESSED_FOLDER_NAME = 'Verarbeitet_von_BSMART'; // change to whatever you like
+
+const inboxEmailAdress = import.meta.env.VITE_INBOX_EMAIL_ADRESS || '';
+const inboxEmailAdress2 = import.meta.env.VITE_INBOX_EMAIL_ADRESS2 || '';
+const inboxEmailAdress3 = import.meta.env.VITE_INBOX_EMAIL_ADRESS3 || '';
+const inboxEmailAdress4 = import.meta.env.VITE_INBOX_EMAIL_ADRESS4 || '';
+
+const inboxEmailList = [inboxEmailAdress, inboxEmailAdress2, inboxEmailAdress3, inboxEmailAdress4];
+
+const NORMALIZED_INBOX_SET = new Set(
+  inboxEmailList.filter(Boolean).map(a => a.trim().toLowerCase())
+);
+
+const getPrimaryInboxRecipient = (toRecipients: any[]): string => {
+  if (!Array.isArray(toRecipients)) return '';
+  for (const r of toRecipients) {
+    const raw = r?.emailAddress?.address;
+    const addr = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    if (addr && NORMALIZED_INBOX_SET.has(addr)) {
+      // return original casing
+      return raw;
+    }
+  }
+  // Fallback (optional): first recipient or empty string
+  return toRecipients[0]?.emailAddress?.address || '';
+};
+
+
 // Lokale Email-Interface für die Anzeige
 interface DisplayEmail extends IncomingEmail {
   sender: string;
@@ -71,6 +99,13 @@ const Emails: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [outlookConnected, setOutlookConnected] = useState(false);
+  
+  // Filter: To-recipient (which mailbox received it)
+  const [filterToRecipient, setFilterToRecipient] = useState<string>('alle');
+
+  // Build selectable options from env inbox list (preserve original casing, skip empties)
+  const inboxFilterOptions = ['alle', ...inboxEmailList.filter(Boolean)];
+
   
   // NEW: state for manual forwarding popover
   const [openManualForwardEmailId, setOpenManualForwardEmailId] = useState<string | null>(null);
@@ -449,7 +484,8 @@ const Emails: React.FC = () => {
         };
       }
 
-      const toRecipientsArr = (outlookEmail.toRecipients ?? [])
+      const toRecipientsArr = outlookEmail.toRecipients ?? [];
+      const primaryTo = getPrimaryInboxRecipient(toRecipientsArr);
 
       const processedEmail: DisplayEmail = {
         id: uuidv4(),
@@ -481,7 +517,7 @@ const Emails: React.FC = () => {
         all_customer_numbers: null,
         all_categories: null,
         forwarding_completed: false,
-        to_recipients: toRecipientsArr[0].emailAddress.address
+        to_recipients: primaryTo
       };
 
       const savedEmail = await saveEmailData({
@@ -515,7 +551,7 @@ const Emails: React.FC = () => {
 
 
       if (!savedEmail.analysis_completed) {
-        analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, toRecipientsArr[0].emailAddress.address, settings.forwardingEmail)
+        analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, primaryTo, settings.forwardingEmail)
           .catch(err => console.error('Fehler bei Hintergrund-Analyse:', err));
       }
 
@@ -557,8 +593,8 @@ const Emails: React.FC = () => {
       const outlookEmails = await GraphService.getInboxMails(300);
       console.log("outlookEmails")
       console.log(outlookEmails)
-      for(const asd of outlookEmails){
-        console.log(asd.toRecipients[0].emailAddress.address)
+      for (const asd of outlookEmails) {
+        console.log(getPrimaryInboxRecipient(asd.toRecipients ?? []));
       }
 
       const snapshotIds = new Set(outlookEmails.map((m: any) => m.id));
@@ -701,6 +737,11 @@ const Emails: React.FC = () => {
     (filterCategory === 'ohne-kundennummer' && !email.customer_number) ||
     email.category === filterCategory ||
     (email.all_categories && email.all_categories.includes(filterCategory));
+  
+  // NEW: To-recipient filter (case-insensitive match against the tag)
+  const matchesToRecipient =
+    filterToRecipient === 'alle' ||
+    (email.to_recipients || '').trim().toLowerCase() === filterToRecipient.trim().toLowerCase();
 
   const isAusgeblendet = email.status === EMAIL_STATUS.AUSGEBLENDET;
 
@@ -729,7 +770,7 @@ const Emails: React.FC = () => {
       matchesStatus = email.status === filterStatus && !isAusgeblendet;
   }
 
-  return matchesSearch && matchesCategory && matchesStatus;
+  return matchesSearch && matchesCategory && matchesToRecipient && matchesStatus;
 });
 
 
@@ -772,29 +813,35 @@ const Emails: React.FC = () => {
       const email = emails.find(e => e.id === emailId);
       if (!email) return;
 
-      analysisService.startForwarding(email.id, email.message_id, settings.forwardingEmail)
-        .catch(error => {
-          console.error('Fehler bei Hintergrund-Analyse:', error);
-        });
-      
-      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+      await analysisService.startForwarding(email.id, email.message_id, settings.forwardingEmail)
+        .catch(err => console.error('Fehler bei Hintergrund-Analyse:', err));
 
-      setEmails(prevEmails =>
-        prevEmails.map(e =>
-          e.id === email.id
-            ? { ...e, status: EMAIL_STATUS.WEITERGELEITET }
-            : e
-        )
-      );
-      
+      const mailbox = email.to_recipients || '';
+
+      if (mailbox) {
+        // 1) Mark as read
+        try { await GraphService.markMessageRead(email.message_id, mailbox); } catch (e) { console.warn('Mark read failed:', e); }
+
+        // 2) Ensure folder + move
+        try {
+          const destId = await GraphService.ensureFolder(mailbox, PROCESSED_FOLDER_NAME);
+          await GraphService.moveMessage(email.message_id, mailbox, destId);
+        } catch (e) {
+          console.warn('Move failed:', e);
+        }
+      }
+
+      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: EMAIL_STATUS.WEITERGELEITET } : e));
       return { success: true };
     } catch (error) {
-      console.error('Fehler beim Weiterleiten' , error);
+      console.error('Fehler beim Weiterleiten', error);
       alert('Fehler beim Weiterleiten ' + (error instanceof Error ? error.message : String(error)));
-      const error_message = error instanceof Error ? error.message : String(error)
-      return { success: false, error: error_message};
+      const msg = error instanceof Error ? error.message : String(error);
+      return { success: false, error: msg };
     }
   };
+
 
   // NEW: Manuelle Weiterleitung (Empfänger frei wählen)
   const manualForwardEmails = async (emailId: string, recipientEmail: string) => {
@@ -802,31 +849,33 @@ const Emails: React.FC = () => {
       const email = emails.find(e => e.id === emailId);
       if (!email) return;
 
-      // simple validation
       const to = (recipientEmail || '').trim();
       if (!to || !to.includes('@')) {
         alert('Bitte eine gültige Empfänger-E-Mail eingeben.');
         return;
       }
 
-      const to_recipients = (email && email.to_recipients) ? email.to_recipients : ""
+      const mailbox = email.to_recipients || '';
 
-      analysisService.startManualForwarding(email.id, email.message_id, to_recipients, to)
-        .catch(error => {
-          console.error('Fehler bei Hintergrund-Analyse (manuelle Weiterleitung):', error);
-        });
+      await analysisService.startManualForwarding(email.id, email.message_id, mailbox, to)
+        .catch(err => console.error('Fehler bei Hintergrund-Analyse (manuelle Weiterleitung):', err));
+
+      if (mailbox) {
+        // 1) Mark as read
+        try { await GraphService.markMessageRead(email.message_id, mailbox); } catch (e) { console.warn('Mark read failed:', e); }
+
+        // 2) Ensure folder + move
+        try {
+          const destId = await GraphService.ensureFolder(mailbox, PROCESSED_FOLDER_NAME);
+          await GraphService.moveMessage(email.message_id, mailbox, destId);
+        } catch (e) {
+          console.warn('Move failed:', e);
+        }
+      }
 
       await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: EMAIL_STATUS.WEITERGELEITET } : e));
 
-      setEmails(prevEmails =>
-        prevEmails.map(e =>
-          e.id === email.id
-            ? { ...e, status: EMAIL_STATUS.WEITERGELEITET }
-            : e
-        )
-      );
-
-      // close popover + clear
       setOpenManualForwardEmailId(null);
       setManualForwardRecipient('');
 
@@ -834,10 +883,12 @@ const Emails: React.FC = () => {
     } catch (error) {
       console.error('Fehler bei manueller Weiterleitung', error);
       alert('Fehler bei manueller Weiterleitung ' + (error instanceof Error ? error.message : String(error)));
-      const error_message = error instanceof Error ? error.message : String(error)
-      return { success: false, error: error_message};
+      const msg = error instanceof Error ? error.message : String(error);
+      return { success: false, error: msg };
     }
   };
+
+
 
   // Callback nach Senden im Editor
   const handleEmailSent = async () => {
@@ -1089,6 +1140,22 @@ const Emails: React.FC = () => {
                   <ArrowPathIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
+                <div className="flex items-center">
+                  <label htmlFor="to-filter" className="mr-2 text-gray-600">Empfänger:</label>
+                  <select
+                    id="to-filter"
+                    className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={filterToRecipient}
+                    onChange={(e) => setFilterToRecipient(e.target.value)}
+                  >
+                    {inboxFilterOptions.map(opt => (
+                      <option key={opt} value={opt}>
+                        {opt === 'alle' ? 'Alle Postfächer' : opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
             </div>
             
             {error && (

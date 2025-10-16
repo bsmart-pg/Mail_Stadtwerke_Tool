@@ -19,6 +19,20 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 
+// Inbox filter options from ENV
+const inboxEmailAdress  = import.meta.env.VITE_INBOX_EMAIL_ADRESS  || '';
+const inboxEmailAdress2 = import.meta.env.VITE_INBOX_EMAIL_ADRESS2 || '';
+const inboxEmailAdress3 = import.meta.env.VITE_INBOX_EMAIL_ADRESS3 || '';
+const inboxEmailAdress4 = import.meta.env.VITE_INBOX_EMAIL_ADRESS4 || '';
+
+const inboxEmailList = [
+  inboxEmailAdress,
+  inboxEmailAdress2,
+  inboxEmailAdress3,
+  inboxEmailAdress4,
+].filter(Boolean);
+
+
 ChartJS.register(CategoryScale, LinearScale, BarElement, ChartTitle, Tooltip, Legend);
 
 // ---- Helpers ---------------------------------------------------------------
@@ -135,6 +149,16 @@ const Dashboard: React.FC = () => {
     end: todayYMD,
   });
 
+  // Filter: inbox (To-recipient mailbox)
+  const [inboxFilter, setInboxFilter] = useState<string>('alle');
+
+  // Build select options once (preserve casing)
+  const inboxFilterOptions = useMemo(
+    () => ['alle', ...inboxEmailList],
+    []
+  );
+
+
   const setPreset = (preset: 'today' | '7d' | '30d' | 'week' | 'month' | 'all') => {
     const now = new Date();
     const end = localYMD(now, TZ);
@@ -235,12 +259,23 @@ const Dashboard: React.FC = () => {
     [emails]
   );
 
-  // ---- apply Zeitfilter ----------------------------------------------------
-  const filteredEmails = useMemo(
-    () => visibleEmails.filter((e) => inSelectedRange(e.received_date)),
+  // ---- apply Zeitfilter + inbox filter ---------------------------------------
+  const filteredEmails = useMemo(() => {
+    return visibleEmails.filter((e) => {
+      // Date window
+      if (!inSelectedRange(e.received_date)) return false;
+
+      // Inbox filter
+      if (inboxFilter !== 'alle') {
+        const to = String((e as any).to_recipients || '').trim().toLowerCase();
+        if (to !== inboxFilter.trim().toLowerCase()) return false;
+      }
+
+      return true;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visibleEmails, range.start, range.end]
-  );
+  }, [visibleEmails, range.start, range.end, inboxFilter]);
+
 
   // Stats (ALLE bezogen auf gefilterte Mails)
   const totalInRange = filteredEmails.length;
@@ -432,6 +467,25 @@ const Dashboard: React.FC = () => {
               Alles
             </button>
           </div>
+
+          <div className="flex items-center gap-2">
+            <label htmlFor="inbox-filter" className="text-sm text-gray-700">
+              Postfach:
+            </label>
+            <select
+              id="inbox-filter"
+              className="border rounded-md px-3 py-2"
+              value={inboxFilter}
+              onChange={(e) => setInboxFilter(e.target.value)}
+            >
+              {inboxFilterOptions.map(opt => (
+                <option key={opt} value={opt}>
+                  {opt === 'alle' ? 'Alle Postfächer' : opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
         </div>
       </div>
 
