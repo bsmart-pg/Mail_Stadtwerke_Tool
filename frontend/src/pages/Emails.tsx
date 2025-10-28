@@ -47,19 +47,29 @@ const NORMALIZED_INBOX_SET = new Set(
   inboxEmailList.filter(Boolean).map(a => a.trim().toLowerCase())
 );
 
-const getPrimaryInboxRecipient = (toRecipients: any[]): string => {
-  if (!Array.isArray(toRecipients)) return '';
-  for (const r of toRecipients) {
+const getPrimaryInboxRecipient = (email: any): string => {
+  if (!email) return '';
+
+  const all = [
+    ...(email.toRecipients || []),
+    ...(email.ccRecipients || []),
+    ...(email.bccRecipients || []),
+  ];
+
+  for (const r of all) {
     const raw = r?.emailAddress?.address;
     const addr = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
     if (addr && NORMALIZED_INBOX_SET.has(addr)) {
-      // return original casing
+      // ✅ Found one of our monitored inboxes
       return raw;
     }
   }
-  // Fallback (optional): first recipient or empty string
-  return toRecipients[0]?.emailAddress?.address || '';
+
+  // ⚙️ Fallback: use first To recipient if nothing matched
+  const fallback = email.toRecipients?.[0]?.emailAddress?.address || '';
+  return fallback;
 };
+
 
 
 // Lokale Email-Interface für die Anzeige
@@ -485,7 +495,7 @@ const Emails: React.FC = () => {
       }
 
       const toRecipientsArr = outlookEmail.toRecipients ?? [];
-      const primaryTo = getPrimaryInboxRecipient(toRecipientsArr);
+      const primaryTo = getPrimaryInboxRecipient(outlookEmail);
 
       const processedEmail: DisplayEmail = {
         id: uuidv4(),
@@ -594,7 +604,7 @@ const Emails: React.FC = () => {
       console.log("outlookEmails")
       console.log(outlookEmails)
       for (const asd of outlookEmails) {
-        console.log(getPrimaryInboxRecipient(asd.toRecipients ?? []));
+        console.log(getPrimaryInboxRecipient(asd));
       }
 
       const snapshotIds = new Set(outlookEmails.map((m: any) => m.id));
