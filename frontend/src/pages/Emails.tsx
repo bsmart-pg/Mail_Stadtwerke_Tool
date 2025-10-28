@@ -158,8 +158,20 @@ const Emails: React.FC = () => {
   const [openNumberEditorEmailId, setOpenNumberEditorEmailId] = useState<string | null>(null);
   const [newCustomerNumber, setNewCustomerNumber] = useState('');
 
-  const forwardSuggestions = ['test@abc.de', 'test@def.de'];
-
+  const forwardSuggestions = [
+    'kic.service-swi@swsteinburg.de',
+    'kic.ablage@stadtwerke-steinburg.de',
+    'iz-kom@stadtwerke-itzehoe.de',
+    'avise@stadtwerke-steinburg.de',
+    'Lieferant@stadtwerke-itzehoe.de',
+    'Lieferant@stadtwerke-wilster.de',
+    'Lieferant@stadtwerke-brunsbuettel.de',
+    'Lieferant@stadtwerke-glueckstadt.de',
+    'vertrieb@sw-itzehoe.de',
+    'vertrieb@sw-wilster.de',
+    'vertrieb@sw-brunsbuettel.de',
+    'vertrieb@sw-glueckstadt.de',
+  ];
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1550,7 +1562,7 @@ const Emails: React.FC = () => {
                               <div className="relative inline-block manual-forward-wrapper">
                                 
                                 {openManualForwardEmailId === email.id ? (
-                                  <div className="absolute z-50 bottom-full mb-2 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-64">
+                                  <div className="absolute z-50 bottom-full mb-2 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-[18rem] max-w-[90vw]">
                                     <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
 
                                     {/* Input + natives Dropdown per datalist */}
