@@ -18,6 +18,10 @@ import {
   Legend,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
+
 
 // Inbox filter options from ENV
 const inboxEmailAdress  = import.meta.env.VITE_INBOX_EMAIL_ADRESS  || '';
@@ -157,6 +161,62 @@ const Dashboard: React.FC = () => {
     () => ['alle', ...inboxEmailList],
     []
   );
+
+  const exportToExcel = () => {
+    // Helpers
+    const fmtRange = (ymd: string) =>
+      ymd ? ymd.split('-').reverse().join('.') : '';
+    const safePercent = (count: number, total: number) =>
+      total > 0 ? ((count / total) * 100).toFixed(1).replace('.', ',') + ' %' : '0 %';
+
+    // ---------- Sheet 1: Übersicht ----------
+    const summaryRows = [{
+      Zeitraum: `${fmtRange(range.start)} – ${fmtRange(range.end)}`,
+      'Gesamt E-Mails': totalInRange,
+      Kategorisiert: categorizedCount,
+      'Nicht kategorisierbar': unrecognizableCount,
+      'Fehlende Kundennummer': missingCustomerNumberCount,
+      Postfach: inboxFilter === 'alle' ? 'Alle Postfächer' : inboxFilter,
+    }];
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    wsSummary['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 22 }];
+
+    // ---------- Sheet 2: Kategorien ----------
+    const categoryRows = categoryBuckets.map(c => ({
+      Kategorie: c.name,
+      Anzahl: c.count,
+      Anteil: safePercent(c.count, totalInRange),
+    }));
+    const wsCategories = XLSX.utils.json_to_sheet(categoryRows);
+    wsCategories['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }];
+
+    // ---------- Sheet 3: Tagesübersicht ----------
+    // Uses the same keys/labels as the bar chart currently shown
+    const dailyRows = chartKeys.map((key, i) => ({
+      Datum: chartLabels[i],          // e.g., "Mi. 23.10."
+      'E-Mail-Eingänge': (barData.datasets[0].data as number[])[i] || 0,
+      'Datum (YYYY-MM-DD)': key,      // helpful raw key for further analysis
+    }));
+    const wsDaily = XLSX.utils.json_to_sheet(dailyRows);
+    wsDaily['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 16 }];
+
+    // Freeze header rows for all sheets
+    wsSummary['!freeze'] = { xSplit: 0, ySplit: 1 };
+    wsCategories['!freeze'] = { xSplit: 0, ySplit: 1 };
+    wsDaily['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    // ---------- Build & download ----------
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Übersicht');
+    XLSX.utils.book_append_sheet(wb, wsCategories, 'Kategorien');
+    XLSX.utils.book_append_sheet(wb, wsDaily, 'Tagesübersicht');
+
+    const fileName =
+      `E-Mail-Dashboard_${range.start || 'alle'}_${range.end || 'alle'}.xlsx`.replace(/:/g, '-');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
+  };
+
 
 
   const setPreset = (preset: 'today' | '7d' | '30d' | 'week' | 'month' | 'all') => {
@@ -417,12 +477,11 @@ const Dashboard: React.FC = () => {
 
       {/* ---- Zeitfilter UI -------------------------------------------------- */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid gap-4 md:grid-cols-3 md:items-end">
+          {/* Left: Date inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:col-span-1">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Startdatum
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Startdatum</label>
               <input
                 type="date"
                 className="border rounded-md px-3 py-2 w-full"
@@ -432,9 +491,7 @@ const Dashboard: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Enddatum
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Enddatum</label>
               <input
                 type="date"
                 className="border rounded-md px-3 py-2 w-full"
@@ -446,32 +503,20 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-600 mr-1">Schnellauswahl:</span>
-            <button onClick={() => setPreset('today')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
-              Heute
-            </button>
-            <button onClick={() => setPreset('7d')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
-              Letzte 7 Tage
-            </button>
-            <button onClick={() => setPreset('30d')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
-              Letzte 30 Tage
-            </button>
-            <button onClick={() => setPreset('week')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
-              Diese Woche
-            </button>
-            <button onClick={() => setPreset('month')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
-              Dieser Monat
-            </button>
-            <button onClick={() => setPreset('all')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">
-              Alles
-            </button>
+          {/* Center: Schnellauswahl */}
+          <div className="flex flex-wrap justify-center items-center gap-2 md:col-span-1">
+            <span className="text-sm text-gray-600 whitespace-nowrap">Schnellauswahl:</span>
+            <button onClick={() => setPreset('today')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">Heute</button>
+            <button onClick={() => setPreset('7d')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">Letzte 7 Tage</button>
+            <button onClick={() => setPreset('30d')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">Letzte 30 Tage</button>
+            <button onClick={() => setPreset('week')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">Diese Woche</button>
+            <button onClick={() => setPreset('month')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">Dieser Monat</button>
+            <button onClick={() => setPreset('all')} className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100">Alles</button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <label htmlFor="inbox-filter" className="text-sm text-gray-700">
-              Postfach:
-            </label>
+          {/* Right: Postfach + Export */}
+          <div className="flex items-center justify-end gap-2 whitespace-nowrap md:col-span-1">
+            <label htmlFor="inbox-filter" className="text-sm text-gray-700">Postfach:</label>
             <select
               id="inbox-filter"
               className="border rounded-md px-3 py-2"
@@ -484,10 +529,20 @@ const Dashboard: React.FC = () => {
                 </option>
               ))}
             </select>
+            <button
+              onClick={exportToExcel}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+              title="Als Excel exportieren"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              Export
+            </button>
           </div>
-
         </div>
       </div>
+
+
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
