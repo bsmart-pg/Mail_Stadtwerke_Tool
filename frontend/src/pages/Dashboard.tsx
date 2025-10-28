@@ -19,9 +19,7 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
-
+import * as XLSX from 'xlsx/xlsx.mjs';
 
 // Inbox filter options from ENV
 const inboxEmailAdress  = import.meta.env.VITE_INBOX_EMAIL_ADRESS  || '';
@@ -213,8 +211,7 @@ const Dashboard: React.FC = () => {
 
     const fileName =
       `E-Mail-Dashboard_${range.start || 'alle'}_${range.end || 'alle'}.xlsx`.replace(/:/g, '-');
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
+    XLSX.writeFileXLSX(wb, fileName);
   };
 
 
