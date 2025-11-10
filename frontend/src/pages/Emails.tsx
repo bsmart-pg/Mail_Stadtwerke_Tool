@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from "react-dom";
 import { 
   MagnifyingGlassIcon, 
   TagIcon,
@@ -33,6 +34,8 @@ import {
 import { IncomingEmail, EMAIL_STATUS, EmailStatus } from '../types/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { analysisService } from '../services/AnalysisService';
+import { getAllEmailsWithStatus } from '../services/SupabaseService';
+
 
 const PROCESSED_FOLDER_NAME = 'Verarbeitet_von_BSMART'; // change to whatever you like
 
@@ -97,7 +100,8 @@ const statusOptions = [
   { value: EMAIL_STATUS.WEITERGELEITET, label: 'Weitergeleitet' },
   { value: "Unbearbeitet", label: 'Unbearbeitet' },
   { value: EMAIL_STATUS.FEHLENDE_KUNDENNUMMER, label: 'Fehlende Kundennummer' },
-  { value: EMAIL_STATUS.AUSGEBLENDET, label: 'Ausgeblendet' }
+  { value: EMAIL_STATUS.AUSGEBLENDET, label: 'Ausgeblendet' },
+  { value: "Gelöscht", label: "Gelöscht" } // ← NEW LINE
   // Add any other statuses you use
 ];
 
@@ -109,6 +113,8 @@ const Emails: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [outlookConnected, setOutlookConnected] = useState(false);
+  const [categoryDropdownPosition, setCategoryDropdownPosition] = useState({ top: 0, left: 0 });
+
   
   // Filter: To-recipient (which mailbox received it)
   const [filterToRecipient, setFilterToRecipient] = useState<string>('alle');
@@ -381,7 +387,10 @@ const Emails: React.FC = () => {
 
     const interval = setInterval(async () => {
       try {
-        const existingEmails = await getEmailsWithStatus();
+        const existingEmails =
+          filterStatus === "Gelöscht"
+            ? await getAllEmailsWithStatus()
+            : await getEmailsWithStatus();
         
         const displayEmails: DisplayEmail[] = existingEmails.map(email => ({
           ...email,
@@ -746,54 +755,74 @@ const Emails: React.FC = () => {
     }
   };
   
+  // ✅ Reload emails from Supabase when status filter changes (for showing "Gelöscht")
+  useEffect(() => {
+    const reloadForStatus = async () => {
+      if (filterStatus === "Gelöscht") {
+        const all = await getAllEmailsWithStatus();
+        setEmails(all || []);
+        return;
+      }
+
+      const visible = await getEmailsWithStatus();
+      setEmails(visible || []);
+    };
+
+    reloadForStatus();
+  }, [filterStatus]);
+
 
   const filteredEmails = emails.filter((email) => {
-  const matchesSearch =
-    email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    email.sender?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    email.customer_number?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      email.sender?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      email.customer_number?.toLowerCase().includes(searchTerm.toLowerCase());
 
-  const matchesCategory =
-    filterCategory === 'alle' ||
-    (filterCategory === 'unkategorisiert' && !email.category) ||
-    (filterCategory === 'ohne-kundennummer' && !email.customer_number) ||
-    email.category === filterCategory ||
-    (email.all_categories && email.all_categories.includes(filterCategory));
-  
-  // NEW: To-recipient filter (case-insensitive match against the tag)
-  const matchesToRecipient =
-    filterToRecipient === 'alle' ||
-    (email.to_recipients || '').trim().toLowerCase() === filterToRecipient.trim().toLowerCase();
+    const matchesCategory =
+      filterCategory === 'alle' ||
+      (filterCategory === 'unkategorisiert' && !email.category) ||
+      (filterCategory === 'ohne-kundennummer' && !email.customer_number) ||
+      email.category === filterCategory ||
+      (email.all_categories && email.all_categories.includes(filterCategory));
 
-  const isAusgeblendet = email.status === EMAIL_STATUS.AUSGEBLENDET;
+    const matchesToRecipient =
+      filterToRecipient === 'alle' ||
+      (email.to_recipients || '').trim().toLowerCase() === filterToRecipient.trim().toLowerCase();
 
-  let matchesStatus;
-  switch (filterStatus) {
-    case 'Unbearbeitet':
-      // everything except Weitergeleitet, kundennummer-angefragt, and Ausgeblendet
-      matchesStatus =
-        !isAusgeblendet &&
-        email.status !== 'Weitergeleitet' &&
-        email.status !== 'kundennummer-angefragt';
-      break;
+    // 🔥 NEW: Handle deleted explicitly
+    if (filterStatus === "Gelöscht") {
+      return email.status === "Gelöscht" && matchesSearch && matchesCategory && matchesToRecipient;
+    }
 
-    case 'alle':
-      // all statuses except Ausgeblendet
-      matchesStatus = !isAusgeblendet;
-      break;
+    // If not showing deleted → exclude them completely
+    if (email.status === "Gelöscht") return false;
 
-    case EMAIL_STATUS.AUSGEBLENDET:
-      // only Ausgeblendet
-      matchesStatus = isAusgeblendet;
-      break;
+    const isAusgeblendet = email.status === EMAIL_STATUS.AUSGEBLENDET;
 
-    default:
-      // exact match, but exclude Ausgeblendet unless explicitly selected above
-      matchesStatus = email.status === filterStatus && !isAusgeblendet;
-  }
+    let matchesStatus;
+    switch (filterStatus) {
+      case 'Unbearbeitet':
+        matchesStatus =
+          !isAusgeblendet &&
+          email.status !== EMAIL_STATUS.WEITERGELEITET &&
+          email.status !== EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT;
+        break;
 
-  return matchesSearch && matchesCategory && matchesToRecipient && matchesStatus;
-});
+      case 'alle':
+        matchesStatus = !isAusgeblendet;
+        break;
+
+      case EMAIL_STATUS.AUSGEBLENDET:
+        matchesStatus = isAusgeblendet;
+        break;
+
+      default:
+        matchesStatus = email.status === filterStatus && !isAusgeblendet;
+    }
+
+    return matchesSearch && matchesCategory && matchesToRecipient && matchesStatus;
+  });
+
 
 
   // Status-Icon
@@ -1422,25 +1451,43 @@ const Emails: React.FC = () => {
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                      setCategoryDropdownPosition({
+                                        top: rect.bottom + 4,
+                                        left: rect.left,
+                                      });
                                       setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
                                     }}
                                     className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
                                   >
                                     <PlusIcon className="mr-1 h-3 w-3" />
                                   </button>
-                                    {openDropdownEmailId === email.id && (
-                                      <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
-                                        {categories.filter((item) => !email.all_categories?.includes(item)).map((cat) => (
-                                          <div
-                                            key={cat}
-                                            onClick={() => handleCategorySelect(email, cat)}
-                                            className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
-                                          >
-                                            {cat}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
+                                    {openDropdownEmailId === email.id &&
+                                      createPortal(
+                                        <div
+                                          className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem] max-w-sm"
+                                          style={{
+                                            top: categoryDropdownPosition.top,
+                                            left: categoryDropdownPosition.left,
+                                          }}
+                                          onMouseDown={(e) => e.stopPropagation()} // <-- IMPORTANT
+                                        >
+                                          {categories
+                                            .filter((item) => !email.all_categories?.includes(item))
+                                            .map((cat) => (
+                                              <div
+                                                key={cat}
+                                                onClick={() => handleCategorySelect(email, cat)}
+                                                className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
+                                              >
+                                                {cat}
+                                              </div>
+                                            ))}
+                                        </div>,
+                                        document.body
+                                      )
+                                    }
+
                                 </div>
                                 {email.all_customer_numbers && email.all_customer_numbers.length > 0 && 
                                  email.all_categories && email.all_categories.length > 0 && ((email.all_categories.length == 1 && email.all_categories[0] == "Sonstiges")? false: true)&&(
@@ -1462,25 +1509,45 @@ const Emails: React.FC = () => {
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                        setCategoryDropdownPosition({
+                                          top: rect.bottom + 4,
+                                          left: rect.left,
+                                        });
                                         setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
                                       }}
+
                                       className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
                                     >
                                       <PlusIcon className="mr-1 h-3 w-3" />
                                     </button>
-                                      {openDropdownEmailId === email.id && (
-                                        <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto w-auto min-w-[10rem] max-w-sm">
-                                          {categories.filter((item) => !email.all_categories?.includes(item)).map((cat) => (
-                                            <div
-                                              key={cat}
-                                              onClick={() => handleCategorySelect(email, cat)}
-                                              className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
-                                            >
-                                              {cat}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
+
+                                      {openDropdownEmailId === email.id &&
+                                        createPortal(
+                                          <div
+                                            className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem] max-w-sm"
+                                            style={{
+                                              top: categoryDropdownPosition.top,
+                                              left: categoryDropdownPosition.left,
+                                            }}
+                                            onMouseDown={(e) => e.stopPropagation()} // <-- IMPORTANT
+                                          >
+                                            {categories
+                                              .filter((item) => !email.all_categories?.includes(item))
+                                              .map((cat) => (
+                                                <div
+                                                  key={cat}
+                                                  onClick={() => handleCategorySelect(email, cat)}
+                                                  className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
+                                                >
+                                                  {cat}
+                                                </div>
+                                              ))}
+                                          </div>,
+                                          document.body
+                                        )
+                                      }
+
                                   </div>
                               </div>
                             )}
@@ -1489,7 +1556,7 @@ const Emails: React.FC = () => {
                           {/* Aktionen */}
                           <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col items-center space-y-2">
-                              {(email.customer_number && email.category != "Sonstiges" && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
+                              {(email.customer_number && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();

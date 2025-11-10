@@ -274,7 +274,7 @@ const Dashboard: React.FC = () => {
     () => Array.from(new Set([...allCategories, 'Sonstiges'])),
     [allCategories]
   );
-  const [chartCategoryFilter, setChartCategoryFilter] = useState<string[]>([]);
+  const [chartCategoryFilter, setChartCategoryFilter] = useState<string[] | null>(null);
 
   // Load emails + categories from DB
   useEffect(() => {
@@ -305,10 +305,10 @@ const Dashboard: React.FC = () => {
 
   // Initialize chart filter once categories are known (keep selection if already chosen)
   useEffect(() => {
-    if (chartCategoryFilter.length === 0 && categoriesWithOther.length > 0) {
+    if (chartCategoryFilter === null && categoriesWithOther.length > 0) {
       setChartCategoryFilter(categoriesWithOther);
     }
-  }, [categoriesWithOther, chartCategoryFilter.length]);
+  }, [categoriesWithOther, chartCategoryFilter]);
 
   // Exclude hidden mails everywhere
   const visibleEmails = useMemo(
@@ -386,7 +386,7 @@ const Dashboard: React.FC = () => {
   // Emails included in the chart after category filter + Zeitraum
   const chartEmails = useMemo(() => {
     const base = filteredEmails;
-    if (chartCategoryFilter.length === 0) return base;
+    if (chartCategoryFilter === null || chartCategoryFilter.length === 0) return base;
     return base.filter((e) => {
       const cats: string[] =
         Array.isArray((e as any).all_categories) && (e as any).all_categories.length > 0
@@ -449,9 +449,10 @@ const Dashboard: React.FC = () => {
 
   // UI helpers for the chip/checkbox list
   const toggleChartCategory = (name: string) => {
-    setChartCategoryFilter((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    );
+    setChartCategoryFilter((prev) => {
+      if (!prev) return [name];
+      return prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name];
+    });
   };
 
   const selectAllChartCategories = () => setChartCategoryFilter(categoriesWithOther);
@@ -613,8 +614,14 @@ const Dashboard: React.FC = () => {
                 >
                   Alle
                 </button>
+                <button
+                  onClick={clearChartCategories}
+                  className="px-2 py-1 text-xs rounded-md border bg-gray-50 hover:bg-gray-100"
+                >
+                  Keine
+                </button>
                 {categoriesWithOther.map((name) => {
-                  const checked = chartCategoryFilter.includes(name);
+                  const checked = chartCategoryFilter?.includes(name) ?? false;
                   return (
                     <label
                       key={name}

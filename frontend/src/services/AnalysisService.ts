@@ -308,13 +308,49 @@ class AnalysisService {
         })
       });
 
+      const sender = email.from?.emailAddress?.address || ''
+
       const textResult = await response.json();
 
+      const keywords = [
+          "@wpkfm.de",
+          "@wankendorfer.de",
+          "@ohlsen-iz.de",
+          "@he-immobilien.de",
+          "@tag-ag.com",
+          "@harre-rastede.de",
+          "@nhv-gmbh.de",
+          "@wohnwerknord.de",
+          "@von-haw.de",
+          "@bbl-itzehoe.de",
+          "@bb-immo-gmbh.de",
+          "@glueckstaedter.com",
+          "@glueckwerk.de",
+          "@ngd.de",
+          "@glueckstaedter-bauverein.de",
+          "@groga.de",
+          "@capera-immobilien.de",
+          "@gwg-wr.dev",
+          "@gewobau.de",
+          "@hausverwaltung-nord.de",
+          "auxo-gmbh@gmx.de", 
+          "@wo-di.de",
+          "@rwv-dith.de",
+          "@wvbcenturia.de"
+      ];
 
-      return {
-        ...textResult,
-        timestamp: new Date().toISOString()
-      };
+      const match = keywords.some(k => sender.includes(k));
+      const res = {
+          ...textResult,
+          timestamp: new Date().toISOString()
+        }
+
+      if (match) {
+        res.allCategories = ["Verwaltung", ...res.allCategories]
+        res.category = "Verwaltung"
+      }
+      
+      return res;
     } catch (error) {
       console.error(`Fehler bei Text-Analyse für E-Mail ${email.id}:`, error);
       return {
@@ -486,6 +522,16 @@ class AnalysisService {
           allCategories: combinedAllCategories,
           extractedInformation: combinedExtractedInformation
         };
+
+        const priorities = ["Beschwerde", "Inkasso", "Insolvenz", "Verwaltung"];
+
+        const reordered = [
+          ...priorities.filter(p => combinedResult.allCategories.includes(p)),
+          ...combinedResult.allCategories.filter(c => !priorities.includes(c))
+        ];
+
+        combinedResult.allCategories = reordered;
+        combinedResult.category = combinedResult.allCategories[0] || "Sonstiges";
 
         return {
           customerNumber: combinedResult.customerNumber,
