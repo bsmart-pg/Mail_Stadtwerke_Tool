@@ -77,7 +77,8 @@ export const saveEmailData = async (email: Partial<IncomingEmail>): Promise<Inco
       created_at: email.created_at,
       updated_at: email.updated_at,
       forwarded: email.forwarded,
-      to_recipients: email.to_recipients
+      to_recipients: email.to_recipients,
+      conversation_id: email.conversation_id ?? null,
     };
     
     if (existingEmail) {

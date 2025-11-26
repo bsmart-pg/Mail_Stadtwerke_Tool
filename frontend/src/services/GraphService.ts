@@ -230,7 +230,7 @@ export const GraphService = {
       const SELECT_FIELDS = [
         'id','subject','from','toRecipients','ccRecipients','bccRecipients',
         'bodyPreview','receivedDateTime','lastModifiedDateTime',
-        'hasAttachments','parentFolderId'
+        'hasAttachments','parentFolderId', 'conversationId'
       ].join(',');
 
       // inside getInboxMails

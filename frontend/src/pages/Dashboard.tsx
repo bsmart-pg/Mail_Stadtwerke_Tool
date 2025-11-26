@@ -39,9 +39,6 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, ChartTitle, Tooltip, Le
 
 // ---- Helpers ---------------------------------------------------------------
 
-const isWithinLastHours = (date: Date | string, hours = 24) =>
-  Date.now() - new Date(date).getTime() <= hours * 60 * 60 * 1000;
-
 const isHidden = (e: IncomingEmail) => e.status === EMAIL_STATUS.AUSGEBLENDET;
 const isUnrecognizable = (e: IncomingEmail) => e.category === 'Sonstiges';
 const isCategorized = (e: IncomingEmail) => !!e.category && e.category !== 'Sonstiges';
@@ -116,12 +113,10 @@ function dayKeysForRange(startYMD: string, endYMD: string, tz = TZ) {
   const start = s ? new Date(s + 'T00:00:00') : new Date(endYMD + 'T00:00:00');
   const end = e ? new Date(e + 'T00:00:00') : new Date(startYMD + 'T00:00:00');
 
-  // wir gehen von 00:00 lokaler Zeit aus; für Labels nehmen wir das Date-Objekt
   const keys: string[] = [];
   const labels: string[] = [];
   const dayMs = 24 * 60 * 60 * 1000;
 
-  // Anzahl Tage inkl. beider Enden
   const days = Math.max(0, Math.round((end.getTime() - start.getTime()) / dayMs)) + 1;
   for (let i = 0; i < days; i++) {
     const dt = new Date(start.getTime() + i * dayMs);
@@ -141,7 +136,6 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string>('');
 
   // ---- Zeitfenster ---------------------------------------------------------
-  // Default: letzte 7 Tage (inkl. heute)
   const dayMs = 24 * 60 * 60 * 1000;
   const todayYMD = localYMD(new Date(), TZ);
   const sevenDaysAgoYMD = localYMD(new Date(Date.now() - 6 * dayMs), TZ);
@@ -161,60 +155,56 @@ const Dashboard: React.FC = () => {
   );
 
   const exportToExcel = () => {
-    // Helpers
-    const fmtRange = (ymd: string) =>
-      ymd ? ymd.split('-').reverse().join('.') : '';
-    const safePercent = (count: number, total: number) =>
-      total > 0 ? ((count / total) * 100).toFixed(1).replace('.', ',') + ' %' : '0 %';
+  const fmtRange = (ymd: string) =>
+    ymd ? ymd.split('-').reverse().join('.') : '';
+  const safePercent = (count: number, total: number) =>
+    total > 0 ? ((count / total) * 100).toFixed(1).replace('.', ',') + ' %' : '0 %';
 
-    // ---------- Sheet 1: Übersicht ----------
-    const summaryRows = [{
-      Zeitraum: `${fmtRange(range.start)} – ${fmtRange(range.end)}`,
-      'Gesamt E-Mails': totalInRange,
-      Kategorisiert: categorizedCount,
-      'Nicht kategorisierbar': unrecognizableCount,
-      'Fehlende Kundennummer': missingCustomerNumberCount,
-      Postfach: inboxFilter === 'alle' ? 'Alle Postfächer' : inboxFilter,
-    }];
-    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-    wsSummary['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 22 }];
+  // ---------- Sheet 1: Übersicht ----------
+  const summaryRows = [{
+    Zeitraum: `${fmtRange(range.start)} – ${fmtRange(range.end)}`,
+    'Gesamt Konversationen': totalInRange,
+    Kategorisiert: categorizedCount,
+    'Nicht kategorisierbar': unrecognizableCount,
+    'Fehlende Kundennummer': missingCustomerNumberCount,
+    Postfach: inboxFilter === 'alle' ? 'Alle Postfächer' : inboxFilter,
+  }];
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+  wsSummary['!cols'] = [{ wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 22 }];
 
-    // ---------- Sheet 2: Kategorien ----------
-    const categoryRows = categoryBuckets.map(c => ({
-      Kategorie: c.name,
-      Anzahl: c.count,
-      Anteil: safePercent(c.count, totalInRange),
-    }));
-    const wsCategories = XLSX.utils.json_to_sheet(categoryRows);
-    wsCategories['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }];
+  // ---------- Sheet 2: Kategorien ----------
+  const categoryRows = categoryBuckets.map(c => ({
+    Kategorie: c.name,
+    Anzahl: c.count,
+    Anteil: safePercent(c.count, totalInRange),
+  }));
+  const wsCategories = XLSX.utils.json_to_sheet(categoryRows);
+  wsCategories['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }];
 
-    // ---------- Sheet 3: Tagesübersicht ----------
-    // Uses the same keys/labels as the bar chart currently shown
-    const dailyRows = chartKeys.map((key, i) => ({
-      Datum: chartLabels[i],          // e.g., "Mi. 23.10."
-      'E-Mail-Eingänge': (barData.datasets[0].data as number[])[i] || 0,
-      'Datum (YYYY-MM-DD)': key,      // helpful raw key for further analysis
-    }));
-    const wsDaily = XLSX.utils.json_to_sheet(dailyRows);
-    wsDaily['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 16 }];
+  // ---------- Sheet 3: Tagesübersicht ----------
+  const dailyRows = chartKeys.map((key, i) => ({
+    Datum: chartLabels[i],
+    'Konversationen': (barData.datasets[0].data as number[])[i] || 0,
+    'Datum (YYYY-MM-DD)': key,
+  }));
+  const wsDaily = XLSX.utils.json_to_sheet(dailyRows);
+  wsDaily['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 16 }];
 
-    // Freeze header rows for all sheets
-    wsSummary['!freeze'] = { xSplit: 0, ySplit: 1 };
-    wsCategories['!freeze'] = { xSplit: 0, ySplit: 1 };
-    wsDaily['!freeze'] = { xSplit: 0, ySplit: 1 };
+  // ✅ MISSING PART – add this back:
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Übersicht');
+  XLSX.utils.book_append_sheet(wb, wsCategories, 'Kategorien');
+  XLSX.utils.book_append_sheet(wb, wsDaily, 'Tagesübersicht');
 
-    // ---------- Build & download ----------
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, wsSummary, 'Übersicht');
-    XLSX.utils.book_append_sheet(wb, wsCategories, 'Kategorien');
-    XLSX.utils.book_append_sheet(wb, wsDaily, 'Tagesübersicht');
+  wsSummary['!freeze'] = { xSplit: 0, ySplit: 1 };
+  wsCategories['!freeze'] = { xSplit: 0, ySplit: 1 };
+  wsDaily['!freeze'] = { xSplit: 0, ySplit: 1 };
 
-    const fileName =
-      `E-Mail-Dashboard_${range.start || 'alle'}_${range.end || 'alle'}.xlsx`.replace(/:/g, '-');
-    XLSX.writeFileXLSX(wb, fileName);
-  };
+  const fileName =
+    `E-Mail-Dashboard_${range.start || 'alle'}_${range.end || 'alle'}.xlsx`.replace(/:/g, '-');
 
-
+  XLSX.writeFileXLSX(wb, fileName);
+};
 
   const setPreset = (preset: 'today' | '7d' | '30d' | 'week' | 'month' | 'all') => {
     const now = new Date();
@@ -233,11 +223,9 @@ const Dashboard: React.FC = () => {
       return;
     }
     if (preset === 'week') {
-      // Montag als Wochenstart (de-DE)
       const wd = new Intl.DateTimeFormat('de-DE', { timeZone: TZ, weekday: 'short' })
         .formatToParts(now)
         .find(p => p.type === 'weekday')?.value || '';
-      // hole lokalen Wochentag-Index: Mo=1..So=7
       const weekdayMap: Record<string, number> = {
         'Mo.': 1, 'Di.': 2, 'Mi.': 3, 'Do.': 4, 'Fr.': 5, 'Sa.': 6, 'So.': 7,
       };
@@ -248,13 +236,12 @@ const Dashboard: React.FC = () => {
     }
     if (preset === 'month') {
       const y = now.getFullYear();
-      const m = now.getMonth(); // 0-basiert
+      const m = now.getMonth();
       const firstOfMonth = new Date(y, m, 1);
       setRange({ start: localYMD(firstOfMonth, TZ), end });
       return;
     }
     if (preset === 'all') {
-      // "alles" heißt: keine Einschränkung -> wir setzen start leer und end = heute
       setRange({ start: '', end: '' });
       return;
     }
@@ -303,7 +290,6 @@ const Dashboard: React.FC = () => {
     load();
   }, []);
 
-  // Initialize chart filter once categories are known (keep selection if already chosen)
   useEffect(() => {
     if (chartCategoryFilter === null && categoriesWithOther.length > 0) {
       setChartCategoryFilter(categoriesWithOther);
@@ -319,10 +305,8 @@ const Dashboard: React.FC = () => {
   // ---- apply Zeitfilter + inbox filter ---------------------------------------
   const filteredEmails = useMemo(() => {
     return visibleEmails.filter((e) => {
-      // Date window
       if (!inSelectedRange(e.received_date)) return false;
 
-      // Inbox filter
       if (inboxFilter !== 'alle') {
         const to = String((e as any).to_recipients || '').trim().toLowerCase();
         if (to !== inboxFilter.trim().toLowerCase()) return false;
@@ -330,29 +314,50 @@ const Dashboard: React.FC = () => {
 
       return true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleEmails, range.start, range.end, inboxFilter]);
 
 
-  // Stats (ALLE bezogen auf gefilterte Mails)
-  const totalInRange = filteredEmails.length;
+  // 🔥 NEW: collapse to conversations (latest email per conversation)
+  const conversationEmails = useMemo(() => {
+    const map = new Map<string, IncomingEmail>();
+
+    for (const e of filteredEmails) {
+      const key = (e as any).conversation_id || `legacy-${e.id}`;
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, e);
+      } else {
+        const existingDate = new Date(existing.received_date).getTime();
+        const currentDate = new Date(e.received_date).getTime();
+        if (currentDate > existingDate) {
+          map.set(key, e);
+        }
+      }
+    }
+
+    return Array.from(map.values());
+  }, [filteredEmails]);
+
+  // Stats (JETZT basierend auf Konversationen)
+  const totalInRange = conversationEmails.length;
   const categorizedCount = useMemo(
-    () => filteredEmails.filter(isCategorized).length,
-    [filteredEmails]
+    () => conversationEmails.filter(isCategorized).length,
+    [conversationEmails]
   );
   const unrecognizableCount = useMemo(
-    () => filteredEmails.filter(isUnrecognizable).length,
-    [filteredEmails]
+    () => conversationEmails.filter(isUnrecognizable).length,
+    [conversationEmails]
   );
   const missingCustomerNumberCount = useMemo(
-    () => filteredEmails.filter(isCustomerNumberMissing).length,
-    [filteredEmails]
+    () => conversationEmails.filter(isCustomerNumberMissing).length,
+    [conversationEmails]
   );
 
-  // Category distribution from DB categories + always include "Sonstiges" (gefiltert)
+  // Category distribution: per conversation
   const categoryBuckets: CategoryBucket[] = useMemo(() => {
     const buckets = categoriesWithOther.map((catName) => {
-      const count = filteredEmails.reduce((acc, e) => {
+      const count = conversationEmails.reduce((acc, e) => {
         const cats: string[] =
           Array.isArray((e as any).all_categories) && (e as any).all_categories.length > 0
             ? (e as any).all_categories
@@ -364,28 +369,24 @@ const Dashboard: React.FC = () => {
     });
 
     return buckets.sort((a, b) => b.count - a.count);
-  }, [categoriesWithOther, filteredEmails]);
+  }, [categoriesWithOther, conversationEmails]);
 
   const maxCategoryCount =
     categoryBuckets.reduce((m, c) => Math.max(m, c.count), 0) || 1;
 
-  // ---- Bar-Chart über ausgewählten Zeitraum --------------------------------
+  // ---- Bar-Chart über ausgewählten Zeitraum (jetzt Konversationen) ----------
 
-  // Wenn kein Start/Ende gesetzt ist ("Alles"), nehmen wir last 7 days der Daten,
-  // damit das Chart dennoch sinnvoll ist.
   const fallback7 = useMemo(() => lastNDays(7, TZ), []);
   const { keys: chartKeys, labels: chartLabels } = useMemo(() => {
     if (!range.start || !range.end) {
-      // "Alles" → wenn du magst: anhand min/max Datum aus Emails dynamisch bauen
-      // einfache Variante: zeige die letzten 7 Tage
       return fallback7;
     }
     return dayKeysForRange(range.start, range.end, TZ);
   }, [range.start, range.end, fallback7]);
 
-  // Emails included in the chart after category filter + Zeitraum
+  // Emails (Konversationen) included in the chart after category filter + Zeitraum
   const chartEmails = useMemo(() => {
-    const base = filteredEmails;
+    const base = conversationEmails;
     if (chartCategoryFilter === null || chartCategoryFilter.length === 0) return base;
     return base.filter((e) => {
       const cats: string[] =
@@ -394,9 +395,9 @@ const Dashboard: React.FC = () => {
           : (e.category ? [e.category] : []);
       return cats.some((c) => chartCategoryFilter.includes(c));
     });
-  }, [filteredEmails, chartCategoryFilter]);
+  }, [conversationEmails, chartCategoryFilter]);
 
-  // Build count map by Berlin-local day using filtered & category-selected emails
+  // Build count map by day using *conversationEmails* (chartEmails)
   const dayCountsMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const e of chartEmails) {
@@ -412,11 +413,11 @@ const Dashboard: React.FC = () => {
       labels: chartLabels,
       datasets: [
         {
-          label: 'Eingänge',
+          label: 'Konversationen',
           data: counts,
-          backgroundColor: 'rgba(37, 99, 235, 1)',     // blue-600
+          backgroundColor: 'rgba(37, 99, 235, 1)',
           borderColor: 'rgba(37, 99, 235, 1)',
-          hoverBackgroundColor: 'rgba(29, 78, 216, 1)', // blue-700
+          hoverBackgroundColor: 'rgba(29, 78, 216, 1)',
           hoverBorderColor: 'rgba(29, 78, 216, 1)',
           borderWidth: 0,
         },
@@ -433,7 +434,7 @@ const Dashboard: React.FC = () => {
         title: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx: any) => ` ${ctx.parsed.y} E-Mails`,
+            label: (ctx: any) => ` ${ctx.parsed.y} Konversationen`,
           },
         },
       },
@@ -554,7 +555,7 @@ const Dashboard: React.FC = () => {
             {[
               {
                 id: 1,
-                name: 'E-Mails im Zeitraum',
+                name: 'Konversationen im Zeitraum',
                 value: totalInRange.toString(),
                 icon: EnvelopeIcon,
                 color: 'bg-blue-100 text-blue-600',
@@ -598,11 +599,11 @@ const Dashboard: React.FC = () => {
             })}
           </div>
 
-          {/* Last N days chart (basierend auf gewähltem Zeitraum) + category filter */}
+          {/* Chart + category filter */}
           <div className="bg-white rounded-lg shadow p-6 mb-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3">
               <h2 className="text-xl font-semibold">
-                Eingänge – {range.start && range.end ? `${range.start} bis ${range.end}` : 'Zeitraum'}
+                Konversationen – {range.start && range.end ? `${range.start} bis ${range.end}` : 'Zeitraum'}
               </h2>
 
               {/* Category filter pills */}

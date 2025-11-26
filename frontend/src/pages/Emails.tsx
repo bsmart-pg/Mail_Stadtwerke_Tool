@@ -381,47 +381,47 @@ const Emails: React.FC = () => {
     checkAuthAndLoadEmails();
   }, []);
 
-  // Regelmäßige Aktualisierung
-  useEffect(() => {
-    if (!outlookConnected) return;
+  // // Regelmäßige Aktualisierung
+  // useEffect(() => {
+  //   if (!outlookConnected) return;
 
-    const interval = setInterval(async () => {
-      try {
-        const existingEmails =
-          filterStatus === "Gelöscht"
-            ? await getAllEmailsWithStatus()
-            : await getEmailsWithStatus();
+  //   const interval = setInterval(async () => {
+  //     try {
+  //       const existingEmails =
+  //         filterStatus === "Gelöscht"
+  //           ? await getAllEmailsWithStatus()
+  //           : await getEmailsWithStatus();
         
-        const displayEmails: DisplayEmail[] = existingEmails.map(email => ({
-          ...email,
-          sender: email.sender_email,
-          date: new Date(email.received_date).toLocaleDateString('de-DE', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          hasAttachments: email.hasAttachments || false,
-          attachments: email.attachments || [],
-          customer_number: email.customer_number ?? null,
-          category: email.category ?? null,
-          all_customer_numbers: Array.isArray(email.all_customer_numbers) ? email.all_customer_numbers : [],
-          all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
-        }));
+  //       const displayEmails: DisplayEmail[] = existingEmails.map(email => ({
+  //         ...email,
+  //         sender: email.sender_email,
+  //         date: new Date(email.received_date).toLocaleDateString('de-DE', {
+  //           day: '2-digit',
+  //           month: '2-digit',
+  //           year: 'numeric',
+  //           hour: '2-digit',
+  //           minute: '2-digit'
+  //         }),
+  //         hasAttachments: email.hasAttachments || false,
+  //         attachments: email.attachments || [],
+  //         customer_number: email.customer_number ?? null,
+  //         category: email.category ?? null,
+  //         all_customer_numbers: Array.isArray(email.all_customer_numbers) ? email.all_customer_numbers : [],
+  //         all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
+  //       }));
 
-        displayEmails.sort((a, b) => 
-          new Date(b.received_date).getTime() - new Date(a.received_date).getTime()
-        );
+  //       displayEmails.sort((a, b) => 
+  //         new Date(b.received_date).getTime() - new Date(a.received_date).getTime()
+  //       );
 
-        setEmails(displayEmails);
-        setLoading(false);
-      } catch (error) {
-        console.error('Fehler beim Aktualisieren der E-Mail-Liste:', error);
-      }}, 5000);
+  //       setEmails(displayEmails);
+  //       setLoading(false);
+  //     } catch (error) {
+  //       console.error('Fehler beim Aktualisieren der E-Mail-Liste:', error);
+  //     }}, 5000);
       
-      return () => clearInterval(interval);
-  }, [outlookConnected]);
+  //     return () => clearInterval(interval);
+  // }, [outlookConnected, filterStatus]);
   
   const handleEmailClick = async(emailId: string, messageId: string, to_recipients: string) => {
     console.log("CLICKLCICKLCKICK")
@@ -511,7 +511,8 @@ const Emails: React.FC = () => {
           hasAttachments: outlookEmail.hasAttachments || false,
           attachments: outlookEmail.attachments || [],
           customer_number: existingEmail.customer_number ?? null,
-          category: existingEmail.category ?? null
+          category: existingEmail.category ?? null,
+          conversation_id: existingEmail.conversation_id ?? outlookEmail.conversationId ?? null,
         };
       }
 
@@ -548,7 +549,8 @@ const Emails: React.FC = () => {
         all_customer_numbers: null,
         all_categories: null,
         forwarding_completed: false,
-        to_recipients: primaryTo
+        to_recipients: primaryTo,
+        conversation_id: outlookEmail.conversationId ?? null,
       };
 
       const savedEmail = await saveEmailData({
@@ -569,6 +571,7 @@ const Emails: React.FC = () => {
         text_analysis_result: processedEmail.text_analysis_result,
         image_analysis_result: processedEmail.image_analysis_result,
         to_recipients: processedEmail.to_recipients ?? "",
+        conversation_id: processedEmail.conversation_id ?? null,
       });
 
       if (!savedEmail) {
@@ -687,7 +690,8 @@ const Emails: React.FC = () => {
               hasAttachments: outlookEmail.hasAttachments || false,
               attachments: outlookEmail.attachments || [],
               customer_number: existingEmail.customer_number ?? null,
-              category: existingEmail.category ?? null
+              category: existingEmail.category ?? null,
+              conversation_id: existingEmail.conversation_id ?? outlookEmail.conversationId ?? null,
             });
             continue;
           }
@@ -771,8 +775,35 @@ const Emails: React.FC = () => {
     reloadForStatus();
   }, [filterStatus]);
 
+  // 🔥 NEW: collapse to latest email per conversation
+  const conversationEmails = React.useMemo(() => {
+    const map = new Map<string, DisplayEmail>();
 
-  const filteredEmails = emails.filter((email) => {
+    for (const e of emails) {
+      // key: conversation_id if present, otherwise fall back to message_id / id
+      const key =
+        (e as any).conversation_id ||
+        e.message_id ||
+        e.id;
+
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, e);
+      } else {
+        const existingTime = new Date(existing.received_date).getTime();
+        const currentTime = new Date(e.received_date).getTime();
+        if (currentTime > existingTime) {
+          // newer email wins for this conversation
+          map.set(key, e);
+        }
+      }
+    }
+
+    return Array.from(map.values());
+  }, [emails]);
+
+  const filteredEmails = conversationEmails.filter((email) => {
     const matchesSearch =
       email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       email.sender?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -789,12 +820,10 @@ const Emails: React.FC = () => {
       filterToRecipient === 'alle' ||
       (email.to_recipients || '').trim().toLowerCase() === filterToRecipient.trim().toLowerCase();
 
-    // 🔥 NEW: Handle deleted explicitly
     if (filterStatus === "Gelöscht") {
       return email.status === "Gelöscht" && matchesSearch && matchesCategory && matchesToRecipient;
     }
 
-    // If not showing deleted → exclude them completely
     if (email.status === "Gelöscht") return false;
 
     const isAusgeblendet = email.status === EMAIL_STATUS.AUSGEBLENDET;
@@ -822,6 +851,7 @@ const Emails: React.FC = () => {
 
     return matchesSearch && matchesCategory && matchesToRecipient && matchesStatus;
   });
+
 
 
 
