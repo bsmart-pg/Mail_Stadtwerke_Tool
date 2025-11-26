@@ -1408,7 +1408,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 ALTER TABLE public.incoming_emails ADD COLUMN IF NOT EXISTS to_recipients  text DEFAULT NULL;
 
-ALTER TABLE public.incoming_emails ADD COLUMN IF NOT EXISTS conversation_id text;
-
 
 RESET ALL;
