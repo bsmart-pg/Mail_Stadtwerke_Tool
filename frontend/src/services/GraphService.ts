@@ -345,6 +345,9 @@ export const GraphService = {
    */
   getEmailContent: async (emailId: string, to_recipients:string) => {
     try {
+      if (to_recipients === "info@stadtwerke-itzehoe.de"){
+        to_recipients = "service@sw-itzehoe.de"
+      }
       const client = await GraphService.getAuthenticatedClient();
       const encodedEmailId = encodeURIComponent(emailId);
       const response = await client.get(
