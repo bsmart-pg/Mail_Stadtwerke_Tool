@@ -1,6 +1,8 @@
 import { updateEmailAnalysisResults, getEmailById } from './SupabaseService';
 import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
+import pdf from "pdf-parse";
+
 
 
 const baseURL = import.meta.env.VITE_API_BASE;
@@ -30,6 +32,43 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   }
   return btoa(binary);
 }
+
+async function extractPdfText(base64Pdf: string): Promise<{
+  text: string;
+  pageCount: number;
+}> {
+  const buffer = Buffer.from(base64Pdf, "base64");
+  const data = await pdf(buffer);
+
+  return {
+    text: data.text || "",
+    pageCount: data.numpages || 0
+  };
+}
+
+function slicePdfTextBalanced(text: string, pageCount: number): string {
+  const pages = text.split("\f");
+
+  // Small PDFs → send everything
+  if (pageCount <= 6) {
+    return text;
+  }
+
+  // Balanced: first 4 + last 2
+  const sliced = [
+    ...pages.slice(0, 4),
+    ...pages.slice(-2)
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // Hard safety cap (important)
+  const MAX_CHARS = 30_000;
+  return sliced.length > MAX_CHARS
+    ? sliced.slice(0, MAX_CHARS)
+    : sliced;
+}
+
 
 async function buildForwardableContent(email: any): Promise<{ html: string; attachments: any[] }> {
   // 1) Start with the original HTML (or text -> HTML)
@@ -119,14 +158,82 @@ async function buildForwardableContent(email: any): Promise<{ html: string; atta
   return { html, attachments: attachmentsOut };
 }
 
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  {
+    timeoutMs = 30_000,
+    retries = 1,
+  } = {}
+) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+
+      if (!res.ok) {
+        if (attempt < retries) continue;
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      return res;
+    } finally {
+      clearTimeout(id);
+    }
+  }
+
+  throw new Error("fetchWithRetry unreachable");
+}
+
+
 
 class AnalysisService {
   private analysisQueue: Set<string> = new Set();
+
+  private async analyzePdfAsText(base64Pdf: string) {
+    const { text, pageCount } = await extractPdfText(base64Pdf);
+
+    if (!text || text.trim().length === 0) {
+      return {
+        customerNumber: null,
+        category: "Sonstiges",
+        allCustomerNumbers: [],
+        allCategories: ["Sonstiges"],
+        extractedInformation: []
+      };
+    }
+
+    const slicedText = slicePdfTextBalanced(text, pageCount);
+
+    const response = await fetchWithRetry(baseURL + "/api/analyze-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email_subject: "PDF-Anhang",
+        email_body: slicedText
+      })
+    });
+
+    return await response.json();
+  }
+
 
   /**
    * Startet die Hintergrund-Analyse für eine E-Mail
    */
   async startBackgroundAnalysis(emailId: string, messageId: string, to_recipients: string, forwardingEmail: string): Promise<void> {
+    
+    // 🔒 HARD WATCHDOG — guarantees termination
+    const watchdog = setTimeout(async () => {
+      console.error("⏱ Analysis watchdog fired for", messageId);
+
+      await updateEmailAnalysisResults(messageId, {
+        analysis_completed: true,
+        text_analysis_result: "__WATCHDOG_TIMEOUT__"
+      });
+    }, 240_000); // 240 seconds
     if (this.analysisQueue.has(messageId)) return;
     this.analysisQueue.add(messageId);
     try {
@@ -215,8 +322,9 @@ class AnalysisService {
       } catch (updateError) {
         console.error('Fehler beim Aktualisieren des Fehlerstatus:', updateError);
       }
-    }finally {
-      this.analysisQueue.delete(messageId);
+    } finally {
+      clearTimeout(watchdog);          // 🧹 stop watchdog
+      this.analysisQueue.delete(messageId); // 🧹 unlock
     }
   }
 
@@ -299,7 +407,7 @@ class AnalysisService {
       const email_subject = email.subject || ''
       const email_body_for_analysis =
         email.uniqueBody?.content || email.body?.content || '';
-      const response = await fetch(baseURL + '/api/analyze-text', {
+      const response = await fetchWithRetry(baseURL + '/api/analyze-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -423,7 +531,7 @@ class AnalysisService {
             
             // Analysiere das Bild
             // const imageResult = await openAIService.analyzeImage(base64);
-            const response = await fetch(baseURL +'/api/analyze-image', {
+            const response = await fetchWithRetry(baseURL +'/api/analyze-image', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -470,19 +578,22 @@ class AnalysisService {
             
             // Analysiere das PDF
             // const imageResult = await openAIService.analyzePdf(base64);
-            const response = await fetch(baseURL +'/api/analyze-pdf', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                base64Pdf: base64
-              })
-            });
+            // const response = await fetchWithRetry(baseURL +'/api/analyze-pdf', {
+            //   method: 'POST',
+            //   headers: { 'Content-Type': 'application/json' },
+            //   body: JSON.stringify({
+            //     base64Pdf: base64
+            //   })
+            // });
 
-            const imageResult = await response.json();
+            // const imageResult = await response.json();
 
-            imageResults.push(imageResult);
+            // imageResults.push(imageResult);
+            const pdfResult = await this.analyzePdfAsText(base64);
+            imageResults.push(pdfResult);
+
             
-            console.log(`PDF ${imageCount} analysiert:`, imageResult);
+            console.log(`PDF ${imageCount} analysiert:`, pdfResult);
           } catch (error) {
             console.error(`Fehler bei Analyse von PDF ${imageCount}:`, error);
             imageResults.push(

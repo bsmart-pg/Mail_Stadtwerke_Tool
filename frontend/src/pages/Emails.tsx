@@ -1315,7 +1315,7 @@ const Emails: React.FC = () => {
                         <tr 
                           key={email.id}
                           className="hover:bg-gray-50 cursor-pointer"
-                        >
+                        >  
                           <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center">
                               {getStatusIcon(email.status, email.category === null ? undefined : email.category)}
@@ -1404,6 +1404,13 @@ const Emails: React.FC = () => {
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
                                     Angefragt
                                   </span>
+                                ) : email.analysis_completed === true &&
+                                    email.text_analysis_result === "__WATCHDOG_TIMEOUT__"
+                                    ? 
+                                (
+                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-200 text-red-900">
+                                    Analyse fehlgeschlagen
+                                  </span>
                                 ) : email.analysis_completed === false ? (
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
                                     Wird analysiert...
@@ -1412,7 +1419,8 @@ const Emails: React.FC = () => {
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
                                     Fehlt
                                   </span>
-                                )}
+                                )
+                                }
 
                                 {openNumberEditorEmailId === email.id ? (
                                   <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
@@ -1526,6 +1534,12 @@ const Emails: React.FC = () => {
                                   </div>
                                 )}
                               </div>
+                            ) : email.analysis_completed === true &&
+                                email.text_analysis_result === "__WATCHDOG_TIMEOUT__" ?
+                            (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-200 text-red-900">
+                                Analyse fehlgeschlagen
+                              </span>
                             ) : email.analysis_completed === false ? (
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                                 Wird analysiert...
@@ -1535,6 +1549,7 @@ const Emails: React.FC = () => {
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                                   Nicht kategorisiert
                                 </span>
+
                                 <div className="relative inline-block dropdown-wrapper">
                                     <button
                                       onClick={(e) => {
@@ -1586,6 +1601,25 @@ const Emails: React.FC = () => {
                           {/* Aktionen */}
                           <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col items-center space-y-2">
+                              {email.analysis_completed === true &&
+                                email.text_analysis_result === "__WATCHDOG_TIMEOUT__"  && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    analysisService.startBackgroundAnalysis(
+                                      email.id,
+                                      email.message_id,
+                                      email.to_recipients,
+                                      settings.forwardingEmail
+                                    );
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 border border-red-400 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-red-50 text-red-700"
+                                  title="Analyse erneut starten"
+                                >
+                                  Analyse erneut
+                                </button>
+                              )}
+
                               {(email.customer_number && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
                                 <button
                                   onClick={(e) => {

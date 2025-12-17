@@ -48,7 +48,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' * Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
+        cats += (' * '+ d.name + ' , Beschreibung: ' + d.description +  `
       `) 
       }
 
@@ -189,7 +189,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' * Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
+        cats += (' * '+ d.name + ' , Beschreibung: ' + d.description +  `
       `) 
       }
 
@@ -323,7 +323,7 @@ class OpenAIService {
         )
 
       for(const d of data){
-        cats += (' * Name der Kategorie'+ d.name + ': Beschreibung der Kategorie' + d.description +  `
+        cats += (' * '+ d.name + ' , Beschreibung: ' + d.description +  `
       `) 
       }
 
