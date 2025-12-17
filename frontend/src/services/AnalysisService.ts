@@ -1,7 +1,6 @@
 import { updateEmailAnalysisResults, getEmailById } from './SupabaseService';
 import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
-import pdf from "pdf-parse";
 
 
 
@@ -32,43 +31,6 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   }
   return btoa(binary);
 }
-
-async function extractPdfText(base64Pdf: string): Promise<{
-  text: string;
-  pageCount: number;
-}> {
-  const buffer = Buffer.from(base64Pdf, "base64");
-  const data = await pdf(buffer);
-
-  return {
-    text: data.text || "",
-    pageCount: data.numpages || 0
-  };
-}
-
-function slicePdfTextBalanced(text: string, pageCount: number): string {
-  const pages = text.split("\f");
-
-  // Small PDFs → send everything
-  if (pageCount <= 6) {
-    return text;
-  }
-
-  // Balanced: first 4 + last 2
-  const sliced = [
-    ...pages.slice(0, 4),
-    ...pages.slice(-2)
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  // Hard safety cap (important)
-  const MAX_CHARS = 30_000;
-  return sliced.length > MAX_CHARS
-    ? sliced.slice(0, MAX_CHARS)
-    : sliced;
-}
-
 
 async function buildForwardableContent(email: any): Promise<{ html: string; attachments: any[] }> {
   // 1) Start with the original HTML (or text -> HTML)
@@ -191,34 +153,6 @@ async function fetchWithRetry(
 
 class AnalysisService {
   private analysisQueue: Set<string> = new Set();
-
-  private async analyzePdfAsText(base64Pdf: string) {
-    const { text, pageCount } = await extractPdfText(base64Pdf);
-
-    if (!text || text.trim().length === 0) {
-      return {
-        customerNumber: null,
-        category: "Sonstiges",
-        allCustomerNumbers: [],
-        allCategories: ["Sonstiges"],
-        extractedInformation: []
-      };
-    }
-
-    const slicedText = slicePdfTextBalanced(text, pageCount);
-
-    const response = await fetchWithRetry(baseURL + "/api/analyze-text", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email_subject: "PDF-Anhang",
-        email_body: slicedText
-      })
-    });
-
-    return await response.json();
-  }
-
 
   /**
    * Startet die Hintergrund-Analyse für eine E-Mail
@@ -578,22 +512,19 @@ class AnalysisService {
             
             // Analysiere das PDF
             // const imageResult = await openAIService.analyzePdf(base64);
-            // const response = await fetchWithRetry(baseURL +'/api/analyze-pdf', {
-            //   method: 'POST',
-            //   headers: { 'Content-Type': 'application/json' },
-            //   body: JSON.stringify({
-            //     base64Pdf: base64
-            //   })
-            // });
+            const response = await fetchWithRetry(baseURL +'/api/analyze-pdf', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                base64Pdf: base64
+              })
+            });
 
-            // const imageResult = await response.json();
+            const imageResult = await response.json();
 
-            // imageResults.push(imageResult);
-            const pdfResult = await this.analyzePdfAsText(base64);
-            imageResults.push(pdfResult);
-
+            imageResults.push(imageResult);
             
-            console.log(`PDF ${imageCount} analysiert:`, pdfResult);
+            console.log(`PDF ${imageCount} analysiert:`, imageResult);
           } catch (error) {
             console.error(`Fehler bei Analyse von PDF ${imageCount}:`, error);
             imageResults.push(

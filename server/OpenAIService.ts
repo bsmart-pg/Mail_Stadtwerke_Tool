@@ -6,6 +6,47 @@ import {
   saveFlows,
   getExistingFlowCategories
 } from './SupabaseService';
+// at top of file
+const pdfParse = require("pdf-parse");
+
+async function extractPdfTextFromBase64(base64Pdf: string): Promise<{
+  text: string;
+  pageCount: number;
+}> {
+  const buffer = Buffer.from(base64Pdf, "base64");
+  const data = await pdfParse(buffer);
+
+
+  return {
+    text: data.text || "",
+    pageCount: data.numpages || 0
+  };
+}
+
+function slicePdfTextBalanced(text: string, pageCount: number): string {
+  const pages = text.split("\f");
+
+  // Small PDFs → send everything
+  if (pageCount <= 6) {
+    return text;
+  }
+
+  // Balanced: first 4 + last 2
+  const sliced = [
+    ...pages.slice(0, 4),
+    ...pages.slice(-2)
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // Hard safety cap (important)
+  const MAX_CHARS = 30_000;
+  return sliced.length > MAX_CHARS
+    ? sliced.slice(0, MAX_CHARS)
+    : sliced;
+}
+
+
 
 class OpenAIService {
   private openai: OpenAI;
@@ -26,6 +67,29 @@ class OpenAIService {
       dangerouslyAllowBrowser: true 
     });
   }
+
+  async analyzePdfAsText(base64Pdf: string) {
+    const { text, pageCount } = await extractPdfTextFromBase64(base64Pdf);
+
+    if (!text || text.trim().length === 0) {
+      return {
+        customerNumber: null,
+        category: "Sonstiges",
+        allCustomerNumbers: [],
+        allCategories: ["Sonstiges"],
+        extractedInformation: []
+      };
+    }
+
+    const slicedText = slicePdfTextBalanced(text, pageCount);
+
+    // 🔁 Reuse your existing email analysis
+    return await this.analyzeEmailText(
+      "PDF-Anhang",
+      slicedText
+    );
+  }
+
 
   async analyzeEmailText(subject: string, body: string): Promise<{
     customerNumber: string | null;
@@ -307,131 +371,132 @@ class OpenAIService {
     allCategories: string[];
     extractedInformation: object[]
   }> {
-    try {
-      console.log('Starte PDF-analyse mit GPT-4o...');
+  //   try {
+  //     console.log('Starte PDF-analyse mit GPT-4o...');
 
-      console.log("CAT CHECK")
-      let cats = `KATEGORIEN:
-      `;
-      const loadedData = await getCategories();
+  //     console.log("CAT CHECK")
+  //     let cats = `KATEGORIEN:
+  //     `;
+  //     const loadedData = await getCategories();
 
-      const data = loadedData.map(
-          cat => ({
-            name: cat.category_name,
-            description: cat.category_description
-          })
-        )
+  //     const data = loadedData.map(
+  //         cat => ({
+  //           name: cat.category_name,
+  //           description: cat.category_description
+  //         })
+  //       )
 
-      for(const d of data){
-        cats += (' * '+ d.name + ' , Beschreibung: ' + d.description +  `
-      `) 
-      }
+  //     for(const d of data){
+  //       cats += (' * '+ d.name + ' , Beschreibung: ' + d.description +  `
+  //     `) 
+  //     }
 
-      const loadedFlowData = await getFlows();
+  //     const loadedFlowData = await getFlows();
 
-      const flowData = loadedFlowData.map(
-          flow => ({
-            category: flow.category_name,
-            columns: flow.extraction_columns
-          })
-        )
+  //     const flowData = loadedFlowData.map(
+  //         flow => ({
+  //           category: flow.category_name,
+  //           columns: flow.extraction_columns
+  //         })
+  //       )
       
-      let flow_prompt = `Zusätzlich gibt es einige Kategorien, für die du einen Weiteren Schritt durchführen sollst. Falls du eine Email in eine dieser Kategorien klassifizierst, dann extrahiere bitte aus der Email die auch die Informationen die ich dir gleich spezifiziere. Durchsuche dafür den Email Inhalt Betreff, usw.
+  //     let flow_prompt = `Zusätzlich gibt es einige Kategorien, für die du einen Weiteren Schritt durchführen sollst. Falls du eine Email in eine dieser Kategorien klassifizierst, dann extrahiere bitte aus der Email die auch die Informationen die ich dir gleich spezifiziere. Durchsuche dafür den Email Inhalt Betreff, usw.
       
-      Hier die Liste von Kategorien mit den dazugehörigen informationen die extrahiert werden sollen, wobei ich dir zuerst den Kategorienamen gebe, und dann nach einem doppelpunkt ein Array aus zuextrahierenden Informationen. Zuextrahierende Informationen in dem Array sind durch Kommas getrennt (z.B. KATEGORIENAME: [INFO1, INFO2, INFO3]).
+  //     Hier die Liste von Kategorien mit den dazugehörigen informationen die extrahiert werden sollen, wobei ich dir zuerst den Kategorienamen gebe, und dann nach einem doppelpunkt ein Array aus zuextrahierenden Informationen. Zuextrahierende Informationen in dem Array sind durch Kommas getrennt (z.B. KATEGORIENAME: [INFO1, INFO2, INFO3]).
 
-      FLOW KATEGORIEN MIT DEN ZUGEHÖRIGEN ZU EXTRAHIERENDEN INFORMATIONEN:
+  //     FLOW KATEGORIEN MIT DEN ZUGEHÖRIGEN ZU EXTRAHIERENDEN INFORMATIONEN:
       
-      `
+  //     `
 
-      for(const f of flowData){
-        flow_prompt += (' * '+ f.category + ': [' + f.columns +  `]
-      `) 
-      }
+  //     for(const f of flowData){
+  //       flow_prompt += (' * '+ f.category + ': [' + f.columns +  `]
+  //     `) 
+  //     }
 
-      console.log(cats)
-      console.log(flow_prompt)
+  //     console.log(cats)
+  //     console.log(flow_prompt)
 
-      let prompt = `Analysiere dieses PDF sehr sorgfältig. Extrahiere ALLE Kundennummern (falls vorhanden) und ordne das PDF ALLEN zutreffenden Kategorien zu:
+  //     let prompt = `Analysiere dieses PDF sehr sorgfältig. Extrahiere ALLE Kundennummern (falls vorhanden) und ordne das PDF ALLEN zutreffenden Kategorien zu:
 
-      `
-      prompt += cats;
-      prompt += flow_prompt;
-      prompt += `
+  //     `
+  //     prompt += cats;
+  //     prompt += flow_prompt;
+  //     prompt += `
       
-      WICHTIG: 
-      - Finde ALLE Kundennummern in der PDF. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer.
-      - Die PDF kann mehrere Kategorien gleichzeitig betreffen
-      - Prüfe alle Texte und Zahlen in der PDF sorgfältig
+  //     WICHTIG: 
+  //     - Finde ALLE Kundennummern in der PDF. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer.
+  //     - Die PDF kann mehrere Kategorien gleichzeitig betreffen
+  //     - Prüfe alle Texte und Zahlen in der PDF sorgfältig
 
-      Antworte NUR im Format: 
-      {
-        "customerNumber": "erste gefundene Nummer oder null",
-        "category": "hauptsächliche Kategorie",
-        "allCustomerNumbers": ["array aller Kundennummern"],
-        "allCategories": ["array aller Kategorien"]},
-        "extractedInformation": [
-            {
-              "name : ""Name der Kategorie, falls sie in der Liste der Kateogiren mit extraktionsaufforderung war",
-              "data": {
-                  "Name der extrahieren Information": "Wert der Extrahierten Information"
-              }
-            }
-        ]
-      }
-      `
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: prompt,
-              },
-              {
-                type: "file",
-                file: {
-                  file_data: `data:application/pdf;base64,${base64Pdf}`,
-                  filename: 'name'
-                }
-              }
-            ]
-          }
-        ]
-      });
-      const content = response.choices[0]?.message?.content?.replace(/```json\n?|```/g, '') || '{"customerNumber": null, "category": "Sonstiges", "allCustomerNumbers": [], "allCategories": [], "extractedInformation": []}';
-      try {
-        console.log('OpenAI Vision Antwort for PDF:', content);
-        // const response = JSON.parse(content);
-        // console.log('Erfolgreich geparste JSON-Antwort:', response);
+  //     Antworte NUR im Format: 
+  //     {
+  //       "customerNumber": "erste gefundene Nummer oder null",
+  //       "category": "hauptsächliche Kategorie",
+  //       "allCustomerNumbers": ["array aller Kundennummern"],
+  //       "allCategories": ["array aller Kategorien"]},
+  //       "extractedInformation": [
+  //           {
+  //             "name : ""Name der Kategorie, falls sie in der Liste der Kateogiren mit extraktionsaufforderung war",
+  //             "data": {
+  //                 "Name der extrahieren Information": "Wert der Extrahierten Information"
+  //             }
+  //           }
+  //       ]
+  //     }
+  //     `
+  //     const response = await this.openai.chat.completions.create({
+  //       model: "gpt-4o",
+  //       messages: [
+  //         {
+  //           role: "user",
+  //           content: [
+  //             {
+  //               type: "text",
+  //               text: prompt,
+  //             },
+  //             {
+  //               type: "file",
+  //               file: {
+  //                 file_data: `data:application/pdf;base64,${base64Pdf}`,
+  //                 filename: 'name'
+  //               }
+  //             }
+  //           ]
+  //         }
+  //       ]
+  //     });
+  //     const content = response.choices[0]?.message?.content?.replace(/```json\n?|```/g, '') || '{"customerNumber": null, "category": "Sonstiges", "allCustomerNumbers": [], "allCategories": [], "extractedInformation": []}';
+  //     try {
+  //       console.log('OpenAI Vision Antwort for PDF:', content);
+  //       // const response = JSON.parse(content);
+  //       // console.log('Erfolgreich geparste JSON-Antwort:', response);
         
-        // Validiere die Kategorien
-        const validCategories = data.map(
-          d => (d.name)
-        );
-        return checkLlmResponse(content,validCategories,flowData)
-    } catch (error) {
-      console.error('Fehler bei der OpenAI-Bildanalyse:', error);
-      return { 
-        customerNumber: null, 
-        category: 'Sonstiges',
-        allCustomerNumbers: [],
-        allCategories: ['Sonstiges'],
-        extractedInformation: []
-      };
-    }
-  } catch (error) {
-      console.error('Fehler bei der OpenAI-Bildanalyse:', error);
-      return { 
-        customerNumber: null, 
-        category: 'Sonstiges',
-        allCustomerNumbers: [],
-        allCategories: ['Sonstiges'],
-        extractedInformation: []
-      };
-    }
+  //       // Validiere die Kategorien
+  //       const validCategories = data.map(
+  //         d => (d.name)
+  //       );
+  //       return checkLlmResponse(content,validCategories,flowData)
+  //   } catch (error) {
+  //     console.error('Fehler bei der OpenAI-Bildanalyse:', error);
+  //     return { 
+  //       customerNumber: null, 
+  //       category: 'Sonstiges',
+  //       allCustomerNumbers: [],
+  //       allCategories: ['Sonstiges'],
+  //       extractedInformation: []
+  //     };
+  //   }
+  // } catch (error) {
+  //     console.error('Fehler bei der OpenAI-Bildanalyse:', error);
+  //     return { 
+  //       customerNumber: null, 
+  //       category: 'Sonstiges',
+  //       allCustomerNumbers: [],
+  //       allCategories: ['Sonstiges'],
+  //       extractedInformation: []
+  //     };
+  //   }
+    return await this.analyzePdfAsText(base64Pdf);
   }
   
 
@@ -448,7 +513,7 @@ class OpenAIService {
             content: prompt
           }
         ],
-        model: "gpt-4",
+        model: "gpt-4o",
       });
 
       return completion.choices[0]?.message?.content || '{"customerNumber": null, "category": "Sonstiges", "allCustomerNumbers": [], "allCategories": [], "extractedInformation": []}';
