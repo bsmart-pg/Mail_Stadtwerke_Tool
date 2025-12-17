@@ -7,26 +7,22 @@ import {
   getExistingFlowCategories
 } from './SupabaseService';
 // at top of file
-const { PDFParse } = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 
 async function extractPdfTextFromBase64(base64Pdf: string): Promise<{
   text: string;
   pageCount: number;
 }> {
   const buffer = Buffer.from(base64Pdf, "base64");
+  const data = await pdfParse(buffer);
 
-  // pdf-parse v2.x API (CLASS-BASED)
-  const parser = new PDFParse({
-    data: buffer
-  });
-
-  const result = await parser.parse();
 
   return {
-    text: result.text ?? "",
-    pageCount: result.numpages ?? 0
+    text: data.text || "",
+    pageCount: data.numpages || 0
   };
 }
+
 function slicePdfTextBalanced(text: string, pageCount: number): string {
   const pages = text.split("\f");
 
