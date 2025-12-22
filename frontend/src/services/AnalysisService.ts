@@ -124,7 +124,7 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
   {
-    timeoutMs = 30_000,
+    timeoutMs = 240_000,
     retries = 1,
   } = {}
 ) {
