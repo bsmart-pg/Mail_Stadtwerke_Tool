@@ -1612,6 +1612,7 @@ const Emails: React.FC = () => {
                                       email.to_recipients,
                                       settings.forwardingEmail
                                     );
+                                    loadEmails()
                                   }}
                                   className="inline-flex items-center px-3 py-1 border border-red-400 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-red-50 text-red-700"
                                   title="Analyse erneut starten"
