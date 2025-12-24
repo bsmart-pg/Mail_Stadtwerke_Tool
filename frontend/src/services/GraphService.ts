@@ -390,6 +390,59 @@ export const GraphService = {
     }
   },
 
+
+  getEmailFromProcessedFolder: async (
+    messageId: string,
+    mailbox: string,
+    folderId: string
+  ) => {
+    try {
+      // ✅ gleiche Mailbox-Normalisierung wie getEmailContent
+      if (
+        mailbox === "info@stadtwerke-itzehoe.de" || 
+        mailbox === "info@stadtwerke-steinburg.de" || 
+        mailbox === "info@stadtwerke-brunsbuettel.de" || 
+        mailbox === "info@stadtwerke-wilster.de"
+      ) {
+        mailbox = "service@sw-itzehoe.de";
+      }
+
+      const client = await GraphService.getAuthenticatedClient();
+      const encodedId = encodeURIComponent(messageId);
+
+      const response = await client.get(
+        `/users/${mailbox}/mailFolders/${folderId}/messages/${encodedId}` +
+        `?$select=id,subject,bodyPreview,body,uniqueBody,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,attachments` +
+        `&$expand=attachments`
+      );
+
+      // ✅ IDENTISCHE Attachment-Nachbearbeitung
+      if (response.data.attachments) {
+        response.data.attachments = response.data.attachments.map((attachment: any) => {
+          let contentId = attachment.contentId || '';
+          contentId = contentId.replace(/^</, '').replace(/>$/, '');
+          contentId = contentId.replace(/^cid:/, '');
+          const isInline = !!contentId;
+
+          return {
+            ...attachment,
+            contentId,
+            isInline,
+          };
+        });
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        `Fehler beim Abrufen der verarbeiteten E-Mail ${messageId}:`,
+        error
+      );
+      throw error;
+    }
+  },
+
+
   /**
    * Sendet eine E-Mail über Microsoft Graph API
    */

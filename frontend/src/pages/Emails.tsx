@@ -36,6 +36,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { analysisService } from '../services/AnalysisService';
 import { getAllEmailsWithStatus } from '../services/SupabaseService';
 
+const INFO_RECIPIENTS = [
+  "info@stadtwerke-itzehoe.de",
+  "info@stadtwerke-steinburg.de",
+  "info@stadtwerke-brunsbuettel.de",
+  "info@stadtwerke-wilster.de",
+];
 
 const PROCESSED_FOLDER_NAME = 'Verarbeitet_von_BSMART'; // change to whatever you like
 
@@ -114,13 +120,23 @@ const Emails: React.FC = () => {
   const [error, setError] = useState('');
   const [outlookConnected, setOutlookConnected] = useState(false);
   const [categoryDropdownPosition, setCategoryDropdownPosition] = useState({ top: 0, left: 0 });
+  const [processedFolderId, setProcessedFolderId] = useState<string | null>(null);
 
   
   // Filter: To-recipient (which mailbox received it)
   const [filterToRecipient, setFilterToRecipient] = useState<string>('alle');
 
   // Build selectable options from env inbox list (preserve original casing, skip empties)
-  const inboxFilterOptions = ['alle', ...inboxEmailList.filter(Boolean)];
+  const inboxFilterOptions = [
+    'alle',
+
+    // echte Service-Mailboxen (Graph Abfrage)
+    ...inboxEmailList.filter(Boolean),
+
+    // zusätzlich Info-Postfächer
+    ...INFO_RECIPIENTS,
+  ];
+
 
   
   // NEW: state for manual forwarding popover
@@ -356,6 +372,14 @@ const Emails: React.FC = () => {
         
         if (isLoggedIn) {
           try {
+            // 🔽 Processed-Folder-ID einmal holen
+            const mailbox = inboxEmailAdress; // dein Hauptpostfach
+            const folderId = await GraphService.ensureFolder(
+              mailbox,
+              'Verarbeitet_von_BSMART'
+            );
+            setProcessedFolderId(folderId);
+
             const userInfo = await GraphService.getUserInfo();
             setLoggedInUser({
               displayName: userInfo.displayName || '',
@@ -425,22 +449,70 @@ const Emails: React.FC = () => {
   
   const handleEmailClick = async(emailId: string, messageId: string, to_recipients: string) => {
     console.log("CLICKLCICKLCKICK")
-    try {
-      await GraphService.getEmailContent(messageId, to_recipients);
-      setSelectedEmail(emails.find(e => e.id === emailId) || null);
-      setSelectedMessageId(messageId);
+      try {
+        const email = emails.find(e => e.id === emailId);
+        if (!email) return;
+
+        // ✅ FALL 1: weitergeleitet → IMMER aus Verarbeitet lesen
+        if (
+          email.status === EMAIL_STATUS.WEITERGELEITET &&
+          processedFolderId
+        ) {
+          // aus Verarbeitet prüfen
+          await GraphService.getEmailFromProcessedFolder(
+            messageId,
+            to_recipients,
+            processedFolderId
+          );
+        } else {
+          // aus Inbox prüfen
+          await GraphService.getEmailContent(
+            messageId,
+            to_recipients
+          );
+        }
+
+        // // ✅ FALL 2: normale Inbox-Mail
+        // await GraphService.getEmailContent(messageId, to_recipients);
+        setSelectedEmail(email);
+        setSelectedMessageId(messageId);
     } catch (error) {
-      if ((error as any).message === "Request failed with status code 404") {
-        alert("Email nicht abrufbar");
-        await deleteRequestStatus(emailId)
-        await deleteForwardingStatus(emailId)
-        await deleteEmail(emailId)
-        setEmails(prevEmails =>
-          prevEmails.filter(em =>
-            em.id !== emailId
-          )
-        );
+
+      const is404 =
+        error?.response?.status === 404 ||
+        error?.message === "Request failed with status code 404";
+
+      if (!is404) {
+        alert("E-Mail kann nicht geladen werden");
+        return;
       }
+
+      // 🔍 Prüfe, ob sie evtl. im Verarbeitet-Ordner existiert
+      try {
+        if (processedFolderId) {
+          await GraphService.getEmailFromProcessedFolder(
+            messageId,
+            to_recipients,
+            processedFolderId
+          );
+
+          // 👉 existiert dort — also NICHT löschen
+          alert("E-Mail wurde verschoben (Weitergeleitet).");
+          return;
+        }
+      } catch {
+        // auch dort nicht gefunden → jetzt darf gelöscht werden
+      }
+      
+      alert("E-Mail nicht mehr in Outlook – wird entfernt.");
+      await deleteRequestStatus(emailId)
+      await deleteForwardingStatus(emailId)
+      await deleteEmail(emailId)
+      setEmails(prevEmails =>
+        prevEmails.filter(em =>
+          em.id !== emailId
+        )
+      );
     }
   };
 
@@ -764,9 +836,45 @@ const Emails: React.FC = () => {
     const reloadForStatus = async () => {
       if (filterStatus === "Gelöscht") {
         const all = await getAllEmailsWithStatus();
-        setEmails(all || []);
+
+        const mapped = all.map(email => ({
+          ...email,
+
+          // ✔️ Absender
+          sender: email.sender_email,
+
+          // ✔️ Datum
+          date: email.received_date
+            ? new Date(email.received_date).toLocaleDateString("de-DE", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit"
+              })
+            : "",
+
+          // 📎 Attachment-Icon
+          hasAttachments: email.has_attachments ?? false,
+
+          // 🟨 Kategorie(n)
+          category: email.category ?? null,
+          all_categories: Array.isArray(email.all_categories)
+            ? email.all_categories
+            : [],
+
+          // 🔢 Kunden-Nummer(n)
+          customer_number: email.customer_number ?? null,
+          all_customer_numbers: Array.isArray(email.all_customer_numbers)
+            ? email.all_customer_numbers
+            : [],
+        }));
+
+
+        setEmails(mapped);
         return;
       }
+
 
       const visible = await getEmailsWithStatus();
       setEmails(visible || []);
@@ -1788,6 +1896,7 @@ const Emails: React.FC = () => {
           emailId={selectedEmail.id}
           messageId={selectedMessageId}
           to_recipient={(selectedEmail.to_recipients)? selectedEmail.to_recipients: ""}
+          status={selectedEmail.status}
           onClose={handleCloseEmailDetail}
           onAnalysisComplete={handleAnalysisComplete}
         />

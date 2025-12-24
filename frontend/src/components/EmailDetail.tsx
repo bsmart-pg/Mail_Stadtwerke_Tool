@@ -52,6 +52,7 @@ interface EmailDetailProps {
   emailId: string;
   messageId: string;
   to_recipient: string;
+  status: string; 
   onClose: () => void;
   onAnalysisComplete?: (result: { customerNumber?: string; category?: string }) => void;
 }
@@ -98,6 +99,24 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, to_recipi
   const analyzedImagesRef = useRef<Set<string>>(new Set());
   const blobUrlsRef = useRef<string[]>([]);
   const prevMessageIdRef = useRef<string | null>(null);
+  const [processedFolderId, setProcessedFolderId] = useState<string | null>(null);
+
+
+  useEffect(() => {
+    const loadProcessedFolder = async () => {
+      try {
+        const folderId = await GraphService.ensureFolder(
+          to_recipient,
+          'Verarbeitet_von_BSMART'
+        );
+        setProcessedFolderId(folderId);
+      } catch {
+        setProcessedFolderId(null);
+      }
+    };
+
+    loadProcessedFolder();
+  }, [to_recipient]);
 
   // Einzelner useEffect für E-Mail-Inhalt und Anhänge
   // useEffect(() => {
@@ -307,20 +326,49 @@ useEffect(() => {
       try {
         setLoading(true);
         setError('');
-        const emailData = await GraphService.getEmailContent(messageId, to_recipient);
+
+        let emailData;
+
+        // 📂 weitergeleitete Mails → Verarbeitet_von_BSMART
+        if (
+          status === 'WEITERGELEITET' &&
+          processedFolderId
+        ) {
+          emailData = await GraphService.getEmailFromProcessedFolder(
+            messageId,
+            to_recipient,
+            processedFolderId
+          );
+        }
+        // 📥 alle anderen → Inbox
+        else {
+          emailData = await GraphService.getEmailContent(
+            messageId,
+            to_recipient
+          );
+        }
+
         setEmail(emailData);
-      } catch (error) {
+
+      } catch (error: any) {
         console.error('Fehler beim Laden des E-Mail-Inhalts:', error);
+
+        if (error?.response?.status === 404) {
+          setError('Die E-Mail existiert nicht mehr in Outlook.');
+          return;
+        }
+
         setError('Fehler beim Laden des E-Mail-Inhalts');
       } finally {
         setLoading(false);
       }
     };
 
+
     if (messageId) {
       fetchEmailContent();
     }
-  }, [messageId, to_recipient]);
+  }, [messageId, to_recipient, status, processedFolderId]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
