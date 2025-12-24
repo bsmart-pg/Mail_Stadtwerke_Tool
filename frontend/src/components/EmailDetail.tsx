@@ -99,24 +99,25 @@ const EmailDetail: React.FC<EmailDetailProps> = ({ emailId, messageId, to_recipi
   const analyzedImagesRef = useRef<Set<string>>(new Set());
   const blobUrlsRef = useRef<string[]>([]);
   const prevMessageIdRef = useRef<string | null>(null);
-  const [processedFolderId, setProcessedFolderId] = useState<string | null>(null);
+  const processedFolderMap = useRef<Map<string, string>>(new Map());
 
+  async function getProcessedFolderId(mailbox: string) {
+    if (!mailbox) return null;
 
-  useEffect(() => {
-    const loadProcessedFolder = async () => {
-      try {
-        const folderId = await GraphService.ensureFolder(
-          to_recipient,
-          'Verarbeitet_von_BSMART'
-        );
-        setProcessedFolderId(folderId);
-      } catch {
-        setProcessedFolderId(null);
-      }
-    };
+    // schon vorhanden? → Cache nutzen
+    if (processedFolderMap.current.has(mailbox)) {
+      return processedFolderMap.current.get(mailbox)!;
+    }
 
-    loadProcessedFolder();
-  }, [to_recipient]);
+    // sonst neu bei Graph holen
+    const id = await GraphService.ensureFolder(
+      mailbox,
+      'Verarbeitet_von_BSMART'
+    );
+
+    processedFolderMap.current.set(mailbox, id);
+    return id;
+  }
 
   // Einzelner useEffect für E-Mail-Inhalt und Anhänge
   // useEffect(() => {
@@ -329,31 +330,55 @@ useEffect(() => {
 
         let emailData;
 
-        // 📂 weitergeleitete Mails → Verarbeitet_von_BSMART
-        if (
-          status === 'WEITERGELEITET' &&
-          processedFolderId
-        ) {
+        const folderId = await getProcessedFolderId(to_recipient);
+
+        // 📂 weitergeleitet → zuerst Verarbeitet lesen
+        if (status === 'WEITERGELEITET' && folderId) {
+
           emailData = await GraphService.getEmailFromProcessedFolder(
             messageId,
             to_recipient,
-            processedFolderId
+            folderId
           );
         }
-        // 📥 alle anderen → Inbox
+
+        // 📥 sonst Inbox
         else {
           emailData = await GraphService.getEmailContent(
             messageId,
             to_recipient
           );
         }
-
         setEmail(emailData);
 
       } catch (error: any) {
         console.error('Fehler beim Laden des E-Mail-Inhalts:', error);
 
-        if (error?.response?.status === 404) {
+        const is404 =
+          error?.response?.status === 404 ||
+          error?.message?.includes("404");
+
+        // 🔁 Nur bei 404 → Verarbeitet-Ordner prüfen
+        if (is404) {
+          console.warn("Inbox 404 → prüfe Verarbeitet_von_BSMART…");
+
+          try {
+            const folderId = await getProcessedFolderId(to_recipient);
+
+            if (folderId) {
+              const emailData = await GraphService.getEmailFromProcessedFolder(
+                messageId,
+                to_recipient,
+                folderId
+              );
+
+              console.info("Mail im Verarbeitet-Ordner gefunden");
+              setEmail(emailData);
+              return;
+            }
+          } catch {}
+
+          // ❌ wirklich nirgends vorhanden
           setError('Die E-Mail existiert nicht mehr in Outlook.');
           return;
         }
@@ -368,7 +393,7 @@ useEffect(() => {
     if (messageId) {
       fetchEmailContent();
     }
-  }, [messageId, to_recipient, status, processedFolderId]);
+  }, [messageId, to_recipient, status]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

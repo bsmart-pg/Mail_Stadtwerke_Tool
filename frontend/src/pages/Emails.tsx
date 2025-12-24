@@ -120,7 +120,25 @@ const Emails: React.FC = () => {
   const [error, setError] = useState('');
   const [outlookConnected, setOutlookConnected] = useState(false);
   const [categoryDropdownPosition, setCategoryDropdownPosition] = useState({ top: 0, left: 0 });
-  const [processedFolderId, setProcessedFolderId] = useState<string | null>(null);
+
+  const processedFolderMap = React.useRef<Map<string, string>>(new Map());
+  async function getProcessedFolderId(mailbox: string) {
+    if (!mailbox) return null;
+
+    // schon vorhanden? → aus Cache
+    if (processedFolderMap.current.has(mailbox)) {
+      return processedFolderMap.current.get(mailbox)!;
+    }
+
+    // sonst holen
+    const id = await GraphService.ensureFolder(
+      mailbox,
+      PROCESSED_FOLDER_NAME
+    );
+
+    processedFolderMap.current.set(mailbox, id);
+    return id;
+  }
 
   
   // Filter: To-recipient (which mailbox received it)
@@ -372,14 +390,6 @@ const Emails: React.FC = () => {
         
         if (isLoggedIn) {
           try {
-            // 🔽 Processed-Folder-ID einmal holen
-            const mailbox = inboxEmailAdress; // dein Hauptpostfach
-            const folderId = await GraphService.ensureFolder(
-              mailbox,
-              'Verarbeitet_von_BSMART'
-            );
-            setProcessedFolderId(folderId);
-
             const userInfo = await GraphService.getUserInfo();
             setLoggedInUser({
               displayName: userInfo.displayName || '',
@@ -453,16 +463,19 @@ const Emails: React.FC = () => {
         const email = emails.find(e => e.id === emailId);
         if (!email) return;
 
+        // 📂 Ordner-ID passend zum Postfach holen
+        const folderId = await getProcessedFolderId(to_recipients);
+
         // ✅ FALL 1: weitergeleitet → IMMER aus Verarbeitet lesen
         if (
           email.status === EMAIL_STATUS.WEITERGELEITET &&
-          processedFolderId
+          folderId
         ) {
           // aus Verarbeitet prüfen
           await GraphService.getEmailFromProcessedFolder(
             messageId,
             to_recipients,
-            processedFolderId
+            folderId
           );
         } else {
           // aus Inbox prüfen
@@ -487,13 +500,16 @@ const Emails: React.FC = () => {
         return;
       }
 
+      // 🔁 evtl. nachträglich verschoben → Verarbeitet-Ordner prüfen
+      const folderId = await getProcessedFolderId(to_recipients);
+
       // 🔍 Prüfe, ob sie evtl. im Verarbeitet-Ordner existiert
       try {
-        if (processedFolderId) {
+        if (folderId) {
           await GraphService.getEmailFromProcessedFolder(
             messageId,
             to_recipients,
-            processedFolderId
+            folderId
           );
 
           // 👉 existiert dort — also NICHT löschen
