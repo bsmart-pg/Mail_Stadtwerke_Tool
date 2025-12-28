@@ -713,6 +713,26 @@ export const updateEmailAnalysisResults = async (messageId: string, updates: {
   }
 };
 
+export const updateEmailMessageId = async (
+  emailId: string,        // incoming_emails.id (DB-ID, nicht message_id)
+  newMessageId: string
+): Promise<void> => {
+
+  const { error } = await supabase
+    .from('incoming_emails')
+    .update({
+      message_id: newMessageId,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', emailId);
+
+  if (error) {
+    console.error('Fehler beim Aktualisieren der Message-ID:', error);
+    throw error;
+  }
+};
+
+
 
 export const updateEmailCategories = async (id: string, updates: {
   category?: string | null;

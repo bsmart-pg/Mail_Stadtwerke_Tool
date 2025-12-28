@@ -332,12 +332,32 @@ export const GraphService = {
     return await GraphService.createFolder(mailbox, displayName);
   },
 
+  // /** Move a message to destination folder id */
+  // async moveMessage(messageId: string, mailbox: string, destinationFolderId: string) {
+  //   const client = await GraphService.getAuthenticatedClient();
+  //   const encodedId = encodeURIComponent(messageId);
+  //   await client.post(`/users/${mailbox}/messages/${encodedId}/move`, { destinationId: destinationFolderId });
+  // },
+
   /** Move a message to destination folder id */
   async moveMessage(messageId: string, mailbox: string, destinationFolderId: string) {
     const client = await GraphService.getAuthenticatedClient();
     const encodedId = encodeURIComponent(messageId);
-    await client.post(`/users/${mailbox}/messages/${encodedId}/move`, { destinationId: destinationFolderId });
+
+    // Graph gibt das verschobene Message-Objekt zurück
+    const { data } = await client.post(
+      `/users/${mailbox}/messages/${encodedId}/move`,
+      { destinationId: destinationFolderId }
+    );
+
+    // data enthält die NEUE ID (und mehr)
+    return {
+      id: data.id,
+      internetMessageId: data.internetMessageId,
+      conversationId: data.conversationId,
+    };
   },
+
 
 
   /**

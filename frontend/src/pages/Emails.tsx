@@ -29,7 +29,8 @@ import {
   deleteEmail,
   deleteForwardingStatus,
   deleteRequestStatus,
-  updateEmailCustomerNumbers
+  updateEmailCustomerNumbers,
+  updateEmailMessageId
 } from '../services/SupabaseService';
 import { IncomingEmail, EMAIL_STATUS, EmailStatus } from '../types/supabase';
 import { v4 as uuidv4 } from 'uuid';
@@ -1030,7 +1031,25 @@ const Emails: React.FC = () => {
         // 2) Ensure folder + move
         try {
           const destId = await GraphService.ensureFolder(mailbox, PROCESSED_FOLDER_NAME);
-          await GraphService.moveMessage(email.message_id, mailbox, destId);
+          const moved = await GraphService.moveMessage(email.message_id, mailbox, destId);
+          await updateEmailMessageId(email.id, moved.id);
+
+          // 🟢 UI-State aktualisieren
+          setEmails(prev =>
+            prev.map(e =>
+              e.id === email.id
+                ? { ...e, message_id: moved.id }
+                : e
+            )
+          );
+
+          setSelectedEmail(e =>
+            e && e.id === email.id
+              ? { ...e, message_id: moved.id }
+              : e
+          );
+
+          setSelectedMessageId(moved.id);
         } catch (e) {
           console.warn('Move failed:', e);
         }
@@ -1072,7 +1091,24 @@ const Emails: React.FC = () => {
         // 2) Ensure folder + move
         try {
           const destId = await GraphService.ensureFolder(mailbox, PROCESSED_FOLDER_NAME);
-          await GraphService.moveMessage(email.message_id, mailbox, destId);
+          const moved = await GraphService.moveMessage(email.message_id, mailbox, destId);
+          await updateEmailMessageId(email.id, moved.id);
+          setEmails(prev =>
+            prev.map(e =>
+              e.id === email.id
+                ? { ...e, message_id: moved.id }
+                : e
+            )
+          );
+
+          setSelectedEmail(e =>
+            e && e.id === email.id
+              ? { ...e, message_id: moved.id }
+              : e
+          );
+
+          setSelectedMessageId(moved.id);
+          
         } catch (e) {
           console.warn('Move failed:', e);
         }
