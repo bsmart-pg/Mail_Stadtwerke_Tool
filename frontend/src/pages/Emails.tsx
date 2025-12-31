@@ -189,12 +189,14 @@ const Emails: React.FC = () => {
   // Einstellungen für automatische Antworten
   const [settings, setSettings] = useState<{
     autoReply: boolean;
+    autoForward: boolean;
     replyCount: number;
     forwardingEmail: string;
     defaultReplyTemplate: string;
     defaultUnrecognizableReplyTemplate: string;
   }>({
     autoReply: false,
+    autoForward: false,
     replyCount: 0,
     forwardingEmail: "blank",
     defaultReplyTemplate: 'Sehr geehrte(r) Frau/Herr,\n\nVielen Dank für Ihre Nachricht. Für eine schnellere Bearbeitung Ihres Anliegens benötigen wir Ihre Kundennummer.\n\nBitte teilen Sie uns diese mit, indem Sie auf diese E-Mail antworten.\n\nMit freundlichen Grüßen\nIhr Stadtwerke-Team',
@@ -231,6 +233,17 @@ const Emails: React.FC = () => {
     'vertrieb@sw-brunsbuettel.de',
     'vertrieb@sw-glueckstadt.de',
   ];
+
+  const shouldAutoForward = (email: DisplayEmail) => {
+    if (!settings?.autoForward) return false;          // Setting muss aktiv sein
+    if (!email.customer_number) return false;          // Kundennummer erforderlich
+    if (!email.category) return false;                 // Kategorie muss existieren
+    if (email.category === "Sonstiges") return false;  // nicht bei Sonstiges
+    if (email.status === EMAIL_STATUS.WEITERGELEITET) return false; // schon erledigt
+
+    return true;
+  };
+
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1235,12 +1248,14 @@ const Emails: React.FC = () => {
         }
         if (storedData.settings) {
           const autoReplySettings = storedData.settings.find((s: any) => s.setting_key === 'autoReply');
+          const autoForwardSettings = storedData.settings.find(s => s.setting_key === 'autoForward');
           const replyTemplateSettings = storedData.settings.find((s: any) => s.setting_key === 'defaultReplyTemplate');
           const unrecognizableReplySettings = storedData.settings.find((s: any) => s.setting_key === 'defaultUnrecognizableReplyTemplate');
           const forwardingEmail = storedData.settings.find((s: any) => s.setting_key === 'emailForward');
           setSettings(prev => ({
             ...prev,
             autoReply: autoReplySettings?.setting_value === 'true',
+            autoForward: autoForwardSettings?.setting_value === 'true',
             defaultReplyTemplate: replyTemplateSettings?.setting_value || prev.defaultReplyTemplate,
             defaultUnrecognizableReplyTemplate: unrecognizableReplySettings?.setting_value || prev.defaultReplyTemplate,
             forwardingEmail: forwardingEmail?.setting_value
@@ -1303,7 +1318,65 @@ const Emails: React.FC = () => {
     }
   };
 
-  const handleAnalysisComplete = async (result: { customerNumber?: string | undefined; category?: string | undefined }) => {
+  // const handleAnalysisComplete = async (result: { customerNumber?: string | undefined; category?: string | undefined }) => {
+  //   if (!selectedEmail) return;
+
+  //   try {
+  //     await updateEmailAnalysis(selectedEmail.message_id, {
+  //       customerNumber: result.customerNumber,
+  //       category: result.category
+  //     });
+
+  //     // setEmails(prevEmails => 
+  //     //   prevEmails.map(email => 
+  //     //     email.message_id === selectedEmail.message_id
+  //     //       ? {
+  //     //           ...email,
+  //     //           customer_number: result.customerNumber ?? null,
+  //     //           category: result.category ?? null
+  //     //         }
+  //     //       : email
+  //     //   )
+  //     // );
+  //     let updatedEmail: DisplayEmail | null = null;
+
+  //     setEmails(prevEmails => 
+  //       prevEmails.map(email => {
+  //         if (email.message_id !== selectedEmail.message_id) return email;
+
+  //         updatedEmail = {
+  //           ...email,
+  //           customer_number: result.customerNumber ?? null,
+  //           category: result.category ?? null
+  //         };
+
+  //         return updatedEmail;
+  //       })
+  //     );
+
+  //     setSelectedEmail(prevEmail => 
+  //       prevEmail
+  //         ? {
+  //             ...prevEmail,
+  //             customer_number: result.customerNumber ?? null,
+  //             category: result.category ?? null
+  //           }
+  //         : null
+  //     );
+
+  //     // ⬇️ ⭐ NEU — Auto-Forward prüfen & ausführen
+  //     if (updatedEmail && shouldAutoForward(updatedEmail)) {
+  //       console.log("▶ Auto-Forward (after analysis)");
+  //       await forwardEmails(updatedEmail.id);
+  //     }
+
+  //   } catch (error) {
+  //     console.error('Fehler beim Aktualisieren der E-Mail:', error);
+  //   }
+  // };
+  const handleAnalysisComplete = async (
+    result: { customerNumber?: string; category?: string }
+  ) => {
     if (!selectedEmail) return;
 
     try {
@@ -1312,32 +1385,44 @@ const Emails: React.FC = () => {
         category: result.category
       });
 
-      setEmails(prevEmails => 
-        prevEmails.map(email => 
-          email.message_id === selectedEmail.message_id
-            ? {
-                ...email,
-                customer_number: result.customerNumber ?? null,
-                category: result.category ?? null
-              }
-            : email
-        )
+      // 1️⃣ erst neue Email-Liste bauen
+      const nextEmails = emails.map(email => {
+        if (email.message_id !== selectedEmail.message_id) return email;
+
+        return {
+          ...email,
+          customer_number: result.customerNumber ?? null,
+          category: result.category ?? null
+        } as DisplayEmail;
+      });
+
+      // 2️⃣ danach setzen wir sie in den State
+      setEmails(nextEmails);
+
+      // 3️⃣ und holen gezielt die aktualisierte Email heraus
+      const updatedEmail = nextEmails.find(
+        e => e.message_id === selectedEmail.message_id
       );
 
-      setSelectedEmail(prevEmail => 
-        prevEmail
-          ? {
-              ...prevEmail,
-              customer_number: result.customerNumber ?? null,
-              category: result.category ?? null
-            }
-          : null
-      );
+      setSelectedEmail(updatedEmail ?? null);
 
-    } catch (error) {
-      console.error('Fehler beim Aktualisieren der E-Mail:', error);
+      // 4️⃣ 🎯 Auto-Forward NUR wenn Analyse alles liefert
+      if (
+        settings?.autoForward &&
+        updatedEmail &&
+        updatedEmail.customer_number &&
+        updatedEmail.category &&
+        updatedEmail.category !== "Sonstiges" &&
+        updatedEmail.status !== EMAIL_STATUS.WEITERGELEITET
+      ) {
+        console.log("▶ Auto-Forward (analysis)");
+        await forwardEmails(updatedEmail.id);
+      }
+    } catch (err) {
+      console.error("Fehler bei handleAnalysisComplete:", err);
     }
   };
+
 
   return (
     <div className="container max-w-none mx-auto px-4 py-8">

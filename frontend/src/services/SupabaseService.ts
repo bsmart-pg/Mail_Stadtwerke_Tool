@@ -276,32 +276,64 @@ export const saveMultipleCategories = async (categories: { [key: string]: string
 // Mehrere Einstellungen auf einmal speichern
 // Updates existing settings by key, inserts only if a key is new.
 // Returns the freshly saved rows.
+// export const saveMultipleSettings = async (settings: { [key: string]: string }) => {
+//   // 1) Load existing rows to know which keys already exist
+//   const { data: existing, error: fetchError } = await supabase
+//     .from('settings')
+//     .select('id, setting_key');
+//   if (fetchError) throw fetchError;
+
+//   const existingMap = new Map((existing ?? []).map(s => [s.setting_key, s.id]));
+
+//   // 2) Build rows WITHOUT id for new keys; include id only when it exists
+//   const rows = Object.entries(settings).map(([key, value]) => {
+//     const row: any = {
+//       setting_key: key,
+//       setting_value: value,
+//       updated_at: new Date().toISOString(),
+//     };
+//     const existingId = existingMap.get(key);
+//     if (existingId) row.id = existingId; // include id only if it exists
+//     return row;
+//   });
+
+//   // 3) Upsert on setting_key (updates existing, inserts new)
+//   const { data, error } = await supabase
+//     .from('settings')
+//     .upsert(rows, { onConflict: 'setting_key' })
+//     .select(); // return the updated rows so the UI can refresh
+//   if (error) throw error;
+
+//   return data ?? [];
+// };
 export const saveMultipleSettings = async (settings: { [key: string]: string }) => {
   // 1) Load existing rows to know which keys already exist
   const { data: existing, error: fetchError } = await supabase
     .from('settings')
     .select('id, setting_key');
+
   if (fetchError) throw fetchError;
 
   const existingMap = new Map((existing ?? []).map(s => [s.setting_key, s.id]));
 
-  // 2) Build rows WITHOUT id for new keys; include id only when it exists
+  // 2) Always provide an id
   const rows = Object.entries(settings).map(([key, value]) => {
-    const row: any = {
+    const existingId = existingMap.get(key);
+
+    return {
+      id: existingId ?? crypto.randomUUID(),   // 👈 generate id for new keys
       setting_key: key,
       setting_value: value,
       updated_at: new Date().toISOString(),
     };
-    const existingId = existingMap.get(key);
-    if (existingId) row.id = existingId; // include id only if it exists
-    return row;
   });
 
   // 3) Upsert on setting_key (updates existing, inserts new)
   const { data, error } = await supabase
     .from('settings')
     .upsert(rows, { onConflict: 'setting_key' })
-    .select(); // return the updated rows so the UI can refresh
+    .select();
+
   if (error) throw error;
 
   return data ?? [];

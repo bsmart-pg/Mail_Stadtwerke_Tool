@@ -13,7 +13,8 @@ const Settings: React.FC = () => {
     defaultCategory: 'unkategorisiert',
     autoReply: true,
     defaultReplyTemplate: 'Sehr geehrte(r) Frau/Herr,\n\nVielen Dank für Ihre Nachricht. Für eine schnellere Bearbeitung Ihres Anliegens benötigen wir Ihre Kundennummer.\n\nBitte teilen Sie uns diese mit, indem Sie auf diese E-Mail antworten.\n\nMit freundlichen Grüßen\nIhr Stadtwerke-Team',
-    defaultUnrecognizableReplyTemplate: "Leider konnte das anliegen nciht automatisch zugeordnet werden."
+    defaultUnrecognizableReplyTemplate: "Leider konnte das anliegen nciht automatisch zugeordnet werden.",
+    autoForward: false 
   });
 
   const [outlookStatus, setOutlookStatus] = useState({
@@ -35,7 +36,7 @@ const Settings: React.FC = () => {
         const settingsObject: { [key: string]: any } = {};
         
         storedSettings.forEach(setting => {
-          if (setting.setting_key === 'customerNumberRequired') {
+          if (setting.setting_key === 'customerNumberRequired' || setting.setting_key === 'autoForward') {
             settingsObject[setting.setting_key] = setting.setting_value === 'true';
           } else {
             settingsObject[setting.setting_key] = setting.setting_value;
@@ -76,7 +77,8 @@ const Settings: React.FC = () => {
         defaultCategory: settings.defaultCategory,
         autoReply: settings.autoReply.toString(),
         defaultReplyTemplate: settings.defaultReplyTemplate,
-        defaultUnrecognizableReplyTemplate: settings.defaultUnrecognizableReplyTemplate
+        defaultUnrecognizableReplyTemplate: settings.defaultUnrecognizableReplyTemplate,
+        autoForward: settings.autoForward.toString()
       };
 
       await saveMultipleSettings(settingsToSave);
@@ -269,7 +271,7 @@ const Settings: React.FC = () => {
               />
             </div>
             
-            <div>
+            {/* <div>
               <label htmlFor="defaultCategory" className="block text-sm font-medium text-gray-700 mb-2">
                 Standard-Kategorie für nicht kategorisierbare E-Mails
               </label>
@@ -284,7 +286,7 @@ const Settings: React.FC = () => {
                 <option value="Sonstiges">Sonstiges</option>
                 <option value="Zu prüfen">Zu prüfen</option>
               </select>
-            </div>
+            </div> */}
             
             <div className="flex items-center h-full">
               <div className="flex items-center">
@@ -300,6 +302,19 @@ const Settings: React.FC = () => {
                   Kundennummer zwingend erforderlich
                 </label>
               </div>
+            </div>
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="autoForward"
+                name="autoForward"
+                className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                checked={settings.autoForward}
+                onChange={handleSettingsChange}
+              />
+              <label htmlFor="autoForward" className="ml-2 block text-sm text-gray-700">
+                Automatische Weiterleitung aktivieren
+              </label>
             </div>
           </div>
         </div>
