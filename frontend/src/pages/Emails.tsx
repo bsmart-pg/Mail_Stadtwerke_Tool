@@ -80,6 +80,24 @@ const getPrimaryInboxRecipient = (email: any): string => {
   return fallback;
 };
 
+const mapToDisplayEmail = (email: any): DisplayEmail => ({
+  ...email,
+  sender: email.sender ?? email.sender_email ?? "",
+  date: email.received_date
+    ? new Date(email.received_date).toLocaleDateString("de-DE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      })
+    : email.date ?? "",
+  hasAttachments: email.has_attachments ?? false,
+  all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
+  all_customer_numbers: Array.isArray(email.all_customer_numbers) ? email.all_customer_numbers : [],
+});
+
+
 
 
 // Lokale Email-Interface für die Anzeige
@@ -849,56 +867,81 @@ const Emails: React.FC = () => {
   };
   
   // ✅ Reload emails from Supabase when status filter changes (for showing "Gelöscht")
+  // useEffect(() => {
+  //   const reloadForStatus = async () => {
+  //     if (filterStatus === "Gelöscht") {
+  //       const all = await getAllEmailsWithStatus();
+
+  //       // const mapped = all.map(email => ({
+  //       //   ...email,
+
+  //       //   // ✔️ Absender
+  //       //   sender: email.sender_email,
+
+  //       //   // ✔️ Datum
+  //       //   date: email.received_date
+  //       //     ? new Date(email.received_date).toLocaleDateString("de-DE", {
+  //       //         day: "2-digit",
+  //       //         month: "2-digit",
+  //       //         year: "numeric",
+  //       //         hour: "2-digit",
+  //       //         minute: "2-digit"
+  //       //       })
+  //       //     : "",
+
+  //       //   // 📎 Attachment-Icon
+  //       //   hasAttachments: email.has_attachments ?? false,
+
+  //       //   // 🟨 Kategorie(n)
+  //       //   category: email.category ?? null,
+  //       //   all_categories: Array.isArray(email.all_categories)
+  //       //     ? email.all_categories
+  //       //     : [],
+
+  //       //   // 🔢 Kunden-Nummer(n)
+  //       //   customer_number: email.customer_number ?? null,
+  //       //   all_customer_numbers: Array.isArray(email.all_customer_numbers)
+  //       //     ? email.all_customer_numbers
+  //       //     : [],
+  //       // }));
+
+  //       const mapped = all.map(mapToDisplayEmail);
+  //       setEmails(mapped);
+  //       return;
+  //     }
+
+
+  //     const visible = await getEmailsWithStatus();
+  //     // setEmails(visible || []);
+
+  //     const mapped = (visible || []).map(mapToDisplayEmail);
+  //     setEmails(mapped);
+
+  //   };
+
+  //   reloadForStatus();
+  // }, [filterStatus]);
+
+  // Status filter switch behavior
   useEffect(() => {
-    const reloadForStatus = async () => {
+    const applyStatusFilter = async () => {
+
       if (filterStatus === "Gelöscht") {
+
+        // 🔹 Deleted = load ONLY from Supabase
         const all = await getAllEmailsWithStatus();
+        setEmails(all.map(mapToDisplayEmail));
 
-        const mapped = all.map(email => ({
-          ...email,
+      } else {
 
-          // ✔️ Absender
-          sender: email.sender_email,
-
-          // ✔️ Datum
-          date: email.received_date
-            ? new Date(email.received_date).toLocaleDateString("de-DE", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit"
-              })
-            : "",
-
-          // 📎 Attachment-Icon
-          hasAttachments: email.has_attachments ?? false,
-
-          // 🟨 Kategorie(n)
-          category: email.category ?? null,
-          all_categories: Array.isArray(email.all_categories)
-            ? email.all_categories
-            : [],
-
-          // 🔢 Kunden-Nummer(n)
-          customer_number: email.customer_number ?? null,
-          all_customer_numbers: Array.isArray(email.all_customer_numbers)
-            ? email.all_customer_numbers
-            : [],
-        }));
-
-
-        setEmails(mapped);
-        return;
+        // 🔹 All normal views = use Outlook sync loader
+        await loadEmails();
       }
-
-
-      const visible = await getEmailsWithStatus();
-      setEmails(visible || []);
     };
 
-    reloadForStatus();
+    applyStatusFilter();
   }, [filterStatus]);
+
 
   // 🔥 NEW: collapse to latest email per conversation
   const conversationEmails = React.useMemo(() => {
@@ -1374,7 +1417,22 @@ const Emails: React.FC = () => {
               <div className="flex items-center space-x-4">
                 <button
                   className="p-2 rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
-                  onClick={loadEmails}
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+
+                      if (filterStatus === "Gelöscht") {
+                        // 🔁 Nur aus Supabase laden – inkl. gelöschter Einträge
+                        const all = await getAllEmailsWithStatus();
+                        setEmails(all.map(mapToDisplayEmail));
+                      } else {
+                        // 🔁 Normales Verhalten: Outlook + Supabase Sync
+                        await loadEmails();
+                      }
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
                   disabled={loading}
                   title="E-Mails aktualisieren"
                 >
