@@ -341,13 +341,28 @@ export const saveMultipleSettings = async (settings: { [key: string]: string }) 
 
 
 // Anfragen-Status aktualisieren
-export const updateForwardingStatus = async (emailId: string, status: string): Promise<RequestStatus | null> => {
+export const updateForwardingStatus = async (emailId: string, status: string, forwardedBy?: 'auto' | 'manual'): Promise<RequestStatus | null> => {
   try {
     // Aktualisiere zuerst den Status in der incoming_emails Tabelle
+
+    const emailUpdatePayload: any = {
+      status: status,
+      updated_at: new Date(),
+    };
+
+    if (forwardedBy) {
+      emailUpdatePayload.forwarded_by = forwardedBy;
+    }
+
     const { error: emailUpdateError } = await supabase
       .from('incoming_emails')
-      .update({ status: status, updated_at: new Date() })
+      .update(emailUpdatePayload)
       .eq('id', emailId);
+
+    // const { error: emailUpdateError } = await supabase
+    //   .from('incoming_emails')
+    //   .update({ status: status, updated_at: new Date() })
+    //   .eq('id', emailId);
 
     if (emailUpdateError) throw emailUpdateError;
 
@@ -721,6 +736,7 @@ export const updateEmailAnalysisResults = async (messageId: string, updates: {
   forwarded?: boolean;
   forwarding_completed?: boolean;
   extracted_information?: object
+  forwarded_by?: 'auto' | 'manual' | null   // 👈 THIS fixes statistics
 }) => {
   try {
     console.log('Aktualisiere E-Mail-Analyse-Ergebnisse:', { messageId, updates });
@@ -769,6 +785,7 @@ export const updateEmailMessageId = async (
 export const updateEmailCategories = async (id: string, updates: {
   category?: string | null;
   all_categories?: string[] | null;
+  forwarded_by?: 'auto' | 'manual' | null 
 }) => {
   try {
     console.log('Aktualisiere E-Mail-Categorie:', { id, updates });
@@ -795,7 +812,11 @@ export const updateEmailCategories = async (id: string, updates: {
 
 export async function updateEmailCustomerNumbers(
   id: string,
-  payload: { all_customer_numbers: string[]; customer_number?: string | null }
+  payload: { 
+    all_customer_numbers: string[]; 
+    customer_number?: string | null;
+    forwarded_by?: 'auto' | 'manual' | null 
+  }
 ) {
   // adjust table name if yours differs
   const { data, error } = await supabase

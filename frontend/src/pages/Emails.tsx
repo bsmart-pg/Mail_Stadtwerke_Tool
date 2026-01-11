@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from "react-dom";
 import { 
   MagnifyingGlassIcon, 
@@ -22,8 +22,6 @@ import {
   getStoredData,
   getCategories,
   getEmailsWithStatus,
-  getEmailByMessageId,
-  updateEmailAnalysis,
   updateForwardingStatus,
   updateEmailCategories,
   deleteEmail,
@@ -235,11 +233,14 @@ const Emails: React.FC = () => {
   ];
 
   const shouldAutoForward = (email: DisplayEmail) => {
-    if (!settings?.autoForward) return false;          // Setting muss aktiv sein
-    if (!email.customer_number) return false;          // Kundennummer erforderlich
-    if (!email.category) return false;                 // Kategorie muss existieren
-    if (email.category === "Sonstiges") return false;  // nicht bei Sonstiges
-    if (email.status === EMAIL_STATUS.WEITERGELEITET) return false; // schon erledigt
+    if (!settings?.autoForward) return false;
+
+    // 🔐 KI-GATE
+    if (email.forwarded_by !== "auto") return false;
+
+    // technische Guards
+    if (email.forwarded === true) return false;
+    if (email.forwarding_completed === true) return false;
 
     return true;
   };
@@ -284,6 +285,7 @@ const Emails: React.FC = () => {
       await updateEmailCategories(email.id, {
         all_categories: nextCats,
         category: cat,
+        forwarded_by: "manual"
       });
 
       if (email.status === EMAIL_STATUS.UNKATEGORISIERT) {
@@ -323,6 +325,7 @@ const Emails: React.FC = () => {
       await updateEmailCategories(email.id, {
         all_categories: nextCats,
         category: nextMain,
+        forwarded_by: "manual"
       });
 
       setEmails(prev =>
@@ -353,6 +356,7 @@ const Emails: React.FC = () => {
     await updateEmailCustomerNumbers(email.id, {
       all_customer_numbers: current,
       customer_number: current[0] ?? null,
+      forwarded_by: "manual"
     });
 
     if (wasEmpty && email.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
@@ -381,6 +385,7 @@ const Emails: React.FC = () => {
     await updateEmailCustomerNumbers(email.id, {
       all_customer_numbers: current,
       customer_number: current[0] ?? null,
+      forwarded_by: "manual"
     });
 
     if (current.length === 0 && email.status !== EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
@@ -398,7 +403,7 @@ const Emails: React.FC = () => {
 
 
   const handleForwardClick = async (emailId: string) => {
-    await forwardEmails(emailId);
+    await forwardEmails(emailId, 'manual');
   };
   
   // Einstellungen laden
@@ -446,48 +451,6 @@ const Emails: React.FC = () => {
     
     checkAuthAndLoadEmails();
   }, []);
-
-  // // Regelmäßige Aktualisierung
-  // useEffect(() => {
-  //   if (!outlookConnected) return;
-
-  //   const interval = setInterval(async () => {
-  //     try {
-  //       const existingEmails =
-  //         filterStatus === "Gelöscht"
-  //           ? await getAllEmailsWithStatus()
-  //           : await getEmailsWithStatus();
-        
-  //       const displayEmails: DisplayEmail[] = existingEmails.map(email => ({
-  //         ...email,
-  //         sender: email.sender_email,
-  //         date: new Date(email.received_date).toLocaleDateString('de-DE', {
-  //           day: '2-digit',
-  //           month: '2-digit',
-  //           year: 'numeric',
-  //           hour: '2-digit',
-  //           minute: '2-digit'
-  //         }),
-  //         hasAttachments: email.hasAttachments || false,
-  //         attachments: email.attachments || [],
-  //         customer_number: email.customer_number ?? null,
-  //         category: email.category ?? null,
-  //         all_customer_numbers: Array.isArray(email.all_customer_numbers) ? email.all_customer_numbers : [],
-  //         all_categories: Array.isArray(email.all_categories) ? email.all_categories : [],
-  //       }));
-
-  //       displayEmails.sort((a, b) => 
-  //         new Date(b.received_date).getTime() - new Date(a.received_date).getTime()
-  //       );
-
-  //       setEmails(displayEmails);
-  //       setLoading(false);
-  //     } catch (error) {
-  //       console.error('Fehler beim Aktualisieren der E-Mail-Liste:', error);
-  //     }}, 5000);
-      
-  //     return () => clearInterval(interval);
-  // }, [outlookConnected, filterStatus]);
   
   const handleEmailClick = async(emailId: string, messageId: string, to_recipients: string) => {
     console.log("CLICKLCICKLCKICK")
@@ -582,36 +545,20 @@ const Emails: React.FC = () => {
     }
   };
 
-  const handleForwardingStatusUpdate = async (emailId: string, newStatus: EmailStatus) => {
+  const handleForwardingStatusUpdate = async (
+    emailId: string,
+    newStatus: EmailStatus,
+    forwardedBy?: 'auto' | 'manual'
+  ) => {
     try {
       setEmails(prevEmails =>
         prevEmails.map(email =>
           email.id === emailId ? { ...email, status: newStatus } : email
         )
       );
-      await updateForwardingStatus(emailId, newStatus);
+      await updateForwardingStatus(emailId, newStatus, forwardedBy);
     } catch (error) {
       console.error('Fehler beim Aktualisieren des Status:', error);
-    }
-  };
-
-  const sendAutomaticReply = async (email: DisplayEmail, replyText: string) => {
-    try {
-      if (!settings.autoReply || sentReplies[email.id]) {
-        return;
-      }
-
-      await GraphService.sendEmail(
-        `RE: ${email.subject || ''}`,
-        replyText,
-        [email.sender_email]
-      );
-
-      setSentReplies(prev => ({...prev, [email.id]: true}));
-      await handleStatusUpdate(email.id, EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT);
-
-    } catch (error) {
-      console.error('Fehler beim Senden der automatischen Antwort:', error);
     }
   };
 
@@ -698,12 +645,6 @@ const Emails: React.FC = () => {
         throw new Error('Fehler beim Speichern der E-Mail in der Datenbank');
       }
 
-      // analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, settings.forwardingEmail)
-      //   .catch(error => {
-      //     console.error('Fehler bei Hintergrund-Analyse:', error);
-      //   });
-
-
       if (!savedEmail.analysis_completed) {
         analysisService.startBackgroundAnalysis(savedEmail.id, savedEmail.message_id, primaryTo, settings.forwardingEmail)
           .catch(err => console.error('Fehler bei Hintergrund-Analyse:', err));
@@ -767,28 +708,10 @@ const Emails: React.FC = () => {
         }
       }
 
-      // const deletedEmailIds= outlookEmails.filter(
-      //   (em: object) => em.hasOwnProperty('@removed')
-      // ).map((elem: any) => elem.id)
-
-      // console.log("deletedEmailIds")
-      // console.log(deletedEmailIds)
-
-
       const newEmails = outlookEmails;
-      // const newEmails = outlookEmails.filter(
-      //   (em: object) => !em.hasOwnProperty('@removed')
-      // )
 
       console.log("newEmails")
       console.log(newEmails)
-
-      // for (const delId of deletedEmailIds){
-      //   const email = await getEmailByMessageId(delId)
-      //   await deleteRequestStatus(email.id)
-      //   await deleteForwardingStatus(email.id)
-      //   await deleteEmail(email.id)
-      // }
       
       const processedEmails: DisplayEmail[] = [];
       
@@ -817,27 +740,6 @@ const Emails: React.FC = () => {
           }
 
           let fullEmail = outlookEmail;
-          // if (outlookEmail.hasAttachments) {
-          //   fullEmail = await GraphService.getEmailContent(outlookEmail.id);
-            
-          //   if (fullEmail.attachments && Array.isArray(fullEmail.attachments)) {
-          //     for (let i = 0; i < fullEmail.attachments.length; i++) {
-          //       const att = fullEmail.attachments[i] as any;
-          //       if (att.contentType && att.contentType.startsWith('image/') && att.id) {
-          //         try {
-          //           const buffer = await GraphService.getAttachmentContent(fullEmail.id, att.id);
-          //           const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-          //           att.contentBytes = base64;
-          //         } catch (error) {
-          //           console.error(`Fehler beim Laden von base64 für Attachment ${att.name}:`, error);
-          //           att.contentBytes = null;
-          //         }
-          //       } else if (att.contentType && att.contentType.startsWith('image/')) {
-          //         att.contentBytes = null;
-          //       }
-          //     }
-          //   }
-          // }
           
           const processedEmail = await processOutlookEmail(fullEmail, null);
           
@@ -869,6 +771,13 @@ const Emails: React.FC = () => {
       );
 
       setEmails(processedEmails);
+      // 🔥 AUTO-FORWARD trigger (frontend is Outlook executor)
+      for (const email of processedEmails) {
+        if (shouldAutoForward(email)) {
+          console.log("▶ Frontend Auto-Forward", email.id);
+          await forwardEmails(email.id, "auto");
+        }
+      }
       
     } catch (error) {
       console.error('Fehler beim Laden der E-Mails:', error);
@@ -879,62 +788,6 @@ const Emails: React.FC = () => {
     }
   };
   
-  // ✅ Reload emails from Supabase when status filter changes (for showing "Gelöscht")
-  // useEffect(() => {
-  //   const reloadForStatus = async () => {
-  //     if (filterStatus === "Gelöscht") {
-  //       const all = await getAllEmailsWithStatus();
-
-  //       // const mapped = all.map(email => ({
-  //       //   ...email,
-
-  //       //   // ✔️ Absender
-  //       //   sender: email.sender_email,
-
-  //       //   // ✔️ Datum
-  //       //   date: email.received_date
-  //       //     ? new Date(email.received_date).toLocaleDateString("de-DE", {
-  //       //         day: "2-digit",
-  //       //         month: "2-digit",
-  //       //         year: "numeric",
-  //       //         hour: "2-digit",
-  //       //         minute: "2-digit"
-  //       //       })
-  //       //     : "",
-
-  //       //   // 📎 Attachment-Icon
-  //       //   hasAttachments: email.has_attachments ?? false,
-
-  //       //   // 🟨 Kategorie(n)
-  //       //   category: email.category ?? null,
-  //       //   all_categories: Array.isArray(email.all_categories)
-  //       //     ? email.all_categories
-  //       //     : [],
-
-  //       //   // 🔢 Kunden-Nummer(n)
-  //       //   customer_number: email.customer_number ?? null,
-  //       //   all_customer_numbers: Array.isArray(email.all_customer_numbers)
-  //       //     ? email.all_customer_numbers
-  //       //     : [],
-  //       // }));
-
-  //       const mapped = all.map(mapToDisplayEmail);
-  //       setEmails(mapped);
-  //       return;
-  //     }
-
-
-  //     const visible = await getEmailsWithStatus();
-  //     // setEmails(visible || []);
-
-  //     const mapped = (visible || []).map(mapToDisplayEmail);
-  //     setEmails(mapped);
-
-  //   };
-
-  //   reloadForStatus();
-  // }, [filterStatus]);
-
   // Status filter switch behavior
   useEffect(() => {
     const applyStatusFilter = async () => {
@@ -1070,12 +923,15 @@ const Emails: React.FC = () => {
   };
 
   // Standard-Weiterleitung (bestehend)
-  const forwardEmails = async (emailId: string) => {
+  const forwardEmails = async (
+    emailId: string,
+    forwardedBy: 'auto' | 'manual'
+  ) => {
     try {
       const email = emails.find(e => e.id === emailId);
       if (!email) return;
 
-      await analysisService.startForwarding(email.id, email.message_id, settings.forwardingEmail)
+      await analysisService.startForwarding(email.id, email.message_id, settings.forwardingEmail, forwardedBy)
         .catch(err => console.error('Fehler bei Hintergrund-Analyse:', err));
 
       const mailbox = email.to_recipients || '';
@@ -1111,7 +967,11 @@ const Emails: React.FC = () => {
         }
       }
 
-      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+      await handleForwardingStatusUpdate(
+        email.id, 
+        EMAIL_STATUS.WEITERGELEITET,
+        forwardedBy
+      );
       setEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: EMAIL_STATUS.WEITERGELEITET } : e));
       return { success: true };
     } catch (error) {
@@ -1170,7 +1030,7 @@ const Emails: React.FC = () => {
         }
       }
 
-      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET);
+      await handleForwardingStatusUpdate(email.id, EMAIL_STATUS.WEITERGELEITET, 'manual');
       setEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: EMAIL_STATUS.WEITERGELEITET } : e));
 
       setOpenManualForwardEmailId(null);
@@ -1268,161 +1128,6 @@ const Emails: React.FC = () => {
 
     loadStoredData();
   }, []);
-
-  const handleEmailReceived = async (email: Partial<DisplayEmail>) => {
-    try {
-      const savedEmail = await saveEmailData(email);
-      if (savedEmail) {
-        const displayEmail: DisplayEmail = {
-          ...savedEmail,
-          sender: savedEmail.sender_email,
-          date: new Date(savedEmail.received_date).toLocaleDateString('de-DE', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          customer_number: savedEmail.customer_number ?? null,
-          category: savedEmail.category ?? null
-        };
-        setEmails(prevEmails => [displayEmail, ...prevEmails]);
-      }
-    } catch (error) {
-      console.error('Fehler beim Speichern der E-Mail:', error);
-    }
-  };
-
-  const toggleAutoReply = async (enabled: boolean) => {
-    try {
-      await saveSettings('autoReply', enabled.toString());
-      setSettings(prev => ({
-        ...prev,
-        autoReply: enabled
-      }));
-    } catch (error) {
-      console.error('Fehler beim Speichern der Auto-Reply-Einstellungen:', error);
-    }
-  };
-
-  const handleRequestSend = async (emailId: string) => {
-    try {
-      await updateRequestStatus(emailId, 'kundennummer-angefragt');
-      setEmails(prevEmails =>
-        prevEmails.map(email =>
-          email.id === emailId ? { ...email, status: 'kundennummer-angefragt' } : email
-        )
-      );
-    } catch (error) {
-      console.error('Fehler beim Aktualisieren des Anfrage-Status:', error);
-    }
-  };
-
-  // const handleAnalysisComplete = async (result: { customerNumber?: string | undefined; category?: string | undefined }) => {
-  //   if (!selectedEmail) return;
-
-  //   try {
-  //     await updateEmailAnalysis(selectedEmail.message_id, {
-  //       customerNumber: result.customerNumber,
-  //       category: result.category
-  //     });
-
-  //     // setEmails(prevEmails => 
-  //     //   prevEmails.map(email => 
-  //     //     email.message_id === selectedEmail.message_id
-  //     //       ? {
-  //     //           ...email,
-  //     //           customer_number: result.customerNumber ?? null,
-  //     //           category: result.category ?? null
-  //     //         }
-  //     //       : email
-  //     //   )
-  //     // );
-  //     let updatedEmail: DisplayEmail | null = null;
-
-  //     setEmails(prevEmails => 
-  //       prevEmails.map(email => {
-  //         if (email.message_id !== selectedEmail.message_id) return email;
-
-  //         updatedEmail = {
-  //           ...email,
-  //           customer_number: result.customerNumber ?? null,
-  //           category: result.category ?? null
-  //         };
-
-  //         return updatedEmail;
-  //       })
-  //     );
-
-  //     setSelectedEmail(prevEmail => 
-  //       prevEmail
-  //         ? {
-  //             ...prevEmail,
-  //             customer_number: result.customerNumber ?? null,
-  //             category: result.category ?? null
-  //           }
-  //         : null
-  //     );
-
-  //     // ⬇️ ⭐ NEU — Auto-Forward prüfen & ausführen
-  //     if (updatedEmail && shouldAutoForward(updatedEmail)) {
-  //       console.log("▶ Auto-Forward (after analysis)");
-  //       await forwardEmails(updatedEmail.id);
-  //     }
-
-  //   } catch (error) {
-  //     console.error('Fehler beim Aktualisieren der E-Mail:', error);
-  //   }
-  // };
-  const handleAnalysisComplete = async (
-    result: { customerNumber?: string; category?: string }
-  ) => {
-    if (!selectedEmail) return;
-
-    try {
-      await updateEmailAnalysis(selectedEmail.message_id, {
-        customerNumber: result.customerNumber,
-        category: result.category
-      });
-
-      // 1️⃣ erst neue Email-Liste bauen
-      const nextEmails = emails.map(email => {
-        if (email.message_id !== selectedEmail.message_id) return email;
-
-        return {
-          ...email,
-          customer_number: result.customerNumber ?? null,
-          category: result.category ?? null
-        } as DisplayEmail;
-      });
-
-      // 2️⃣ danach setzen wir sie in den State
-      setEmails(nextEmails);
-
-      // 3️⃣ und holen gezielt die aktualisierte Email heraus
-      const updatedEmail = nextEmails.find(
-        e => e.message_id === selectedEmail.message_id
-      );
-
-      setSelectedEmail(updatedEmail ?? null);
-
-      // 4️⃣ 🎯 Auto-Forward NUR wenn Analyse alles liefert
-      if (
-        settings?.autoForward &&
-        updatedEmail &&
-        updatedEmail.customer_number &&
-        updatedEmail.category &&
-        updatedEmail.category !== "Sonstiges" &&
-        updatedEmail.status !== EMAIL_STATUS.WEITERGELEITET
-      ) {
-        console.log("▶ Auto-Forward (analysis)");
-        await forwardEmails(updatedEmail.id);
-      }
-    } catch (err) {
-      console.error("Fehler bei handleAnalysisComplete:", err);
-    }
-  };
-
 
   return (
     <div className="container max-w-none mx-auto px-4 py-8">
@@ -2093,7 +1798,6 @@ const Emails: React.FC = () => {
           to_recipient={(selectedEmail.to_recipients)? selectedEmail.to_recipients: ""}
           status={selectedEmail.status}
           onClose={handleCloseEmailDetail}
-          onAnalysisComplete={handleAnalysisComplete}
         />
       )}
       

@@ -1,4 +1,4 @@
-import { updateEmailAnalysisResults, getEmailById } from './SupabaseService';
+import { updateEmailAnalysisResults, getEmailById , getSettings} from './SupabaseService';
 import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
 
@@ -223,6 +223,12 @@ class AnalysisService {
       const combinedResult = this.combineAnalysisResults(textResult, imageResult);
       console.log('Kombiniertes Ergebnis:', combinedResult);
 
+
+      const isAutoQualified =
+        combinedResult.customerNumber &&
+        combinedResult.category &&
+        combinedResult.category !== "Sonstiges";
+
       // Aktualisiere die E-Mail in der Datenbank mit allen Ergebnissen
       await updateEmailAnalysisResults(messageId, {
         customer_number: combinedResult.customerNumber,
@@ -238,8 +244,47 @@ class AnalysisService {
         analysis_completed: true,
         // Aktualisiere auch den Status basierend auf den Ergebnissen
         status: this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
-        extracted_information: combinedResult.allExtractedInformation
+        extracted_information: combinedResult.allExtractedInformation,
+        forwarded_by: isAutoQualified ? "auto" : null
       });
+
+      // // 🔽 FETCH FINAL EMAIL STATE
+      // const email = await getEmailById(emailId);
+      // console.log("This is the Email")
+      // console.log(email)
+      // if (!email) return;
+
+      // // 🔒 GUARDS: never forward twice
+      // if (email.forwarding_completed === true || email.forwarded === true) {
+      //   console.log("⏭ Skipping auto-forward (already completed)", emailId);
+      //   return;
+      // }
+
+      // // ⚙️ SETTINGS CHECK (USING EXISTING FUNCTION)
+      // const settings = await getSettings();
+      // const autoForwardEnabled =
+      //   settings.find(s => s.setting_key === 'autoForward')?.setting_value === 'true';
+
+      // console.log("autoForwardEnabled")
+      // console.log(autoForwardEnabled)
+
+      // if (!autoForwardEnabled) return;
+
+      // const shouldAutoForward =
+      //   email.customer_number &&
+      //   email.category &&
+      //   email.category !== "Sonstiges";
+
+      // if (shouldAutoForward) {
+      //   console.log("▶ AUTO-FORWARD (analysis completed)", emailId);
+
+      //   await this.startForwarding(
+      //     emailId,
+      //     messageId,
+      //     forwardingEmail,
+      //     "auto"
+      //   );
+      // }
 
       console.log(`Hintergrund-Analyse für E-Mail ${emailId} abgeschlossen`);
 
@@ -262,7 +307,7 @@ class AnalysisService {
     }
   }
 
-  async startForwarding(emailId: string, messageId: string, forwardingEmail: string): Promise<void> {
+  async startForwarding(emailId: string, messageId: string, forwardingEmail: string, forwardedBy: 'auto' | 'manual' ): Promise<void> {
     try {
 
       console.log(`Start Weiterleitung für E-Mail ${emailId}`);
@@ -282,7 +327,7 @@ class AnalysisService {
       if (combinedResult.customerNumber && combinedResult.category && 
           combinedResult.allCustomerNumbers.length > 0 && combinedResult.allCategories.length > 0) {
         console.log(`Starte Weiterleitungsprozess - Kundennummer und Kategorie gefunden`);
-        await this.processForwarding(emailId, messageId, combinedResult, to_recipients,  forwardingEmail);
+        await this.processForwarding(emailId, messageId, combinedResult, to_recipients,  forwardingEmail, forwardedBy);
       } else {
         console.log(`Keine Weiterleitung - unvollständige Analyse:`, {
           customerNumber: combinedResult.customerNumber,
@@ -312,6 +357,13 @@ class AnalysisService {
      
       console.log(`Starte Manuellen Weiterleitungsprozess`);
       await this.forwardManualEmailWithTags(email, 1,1 , forwardingEmail, to_recipients);
+
+      // 👇 minimaler Sync für den Guard & Statistik
+      await updateEmailAnalysisResults(messageId, {
+        forwarded: true,
+        forwarding_completed: true,
+        forwarded_by: "manual"
+      });
 
     } catch (error) {
       console.error(`Fehler bei Weiterleitung für E-Mail ${emailId}:`, error);
@@ -755,6 +807,7 @@ class AnalysisService {
     },
     to_recipients: string,
     forwardingEmail: string,
+    forwardedBy: 'auto' | 'manual'   // 👈 ADD THIS
   ): Promise<void> {
     try {
       console.log(`Starte Weiterleitungsprozess für E-Mail ${emailId} : from ${to_recipients}`);
@@ -782,7 +835,7 @@ class AnalysisService {
       // Markiere Weiterleitung als abgeschlossen
       await updateEmailAnalysisResults(messageId, {
         forwarded: true,
-        forwarding_completed: true
+        forwarding_completed: true,
       });
 
       console.log(`Weiterleitungsprozess für E-Mail ${emailId} abgeschlossen`);

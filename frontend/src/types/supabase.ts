@@ -35,6 +35,7 @@ export interface IncomingEmail {
   forwarding_completed: boolean;
   to_recipients?: string | null;
   conversation_id?: string | null;
+  forwarded_by?: 'auto' | 'manual' | null;
 }
 
 export interface AutoReply {

@@ -21,8 +21,10 @@ services:
       HOST: 0.0.0.0
       PORT: 3001
       # If your backend calls Supabase:
-      SUPABASE_REST_URL: http://localhost:3000   # or http://supabase-rest:3000 if server talks over Docker network only
-      SUPABASE_AUTH_URL: http://localhost:9999
+      # SUPABASE_REST_URL: http://localhost:3000   # or http://supabase-rest:3000 if server talks over Docker network only
+      # SUPABASE_AUTH_URL: http://localhost:9999
+      SUPABASE_REST_URL: http://supabase-rest-dev:3000
+      SUPABASE_AUTH_URL: http://supabase-auth-dev:9999
       SUPABASE_DB_URL: postgres://postgres:postgres@supabase-db:5432/postgres
       JWT_SECRET_STRING: ${JWT_SECRET_STRING}
 

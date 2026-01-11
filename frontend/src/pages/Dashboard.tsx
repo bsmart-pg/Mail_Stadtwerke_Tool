@@ -44,6 +44,10 @@ const isUnrecognizable = (e: IncomingEmail) => e.category === 'Sonstiges';
 const isCategorized = (e: IncomingEmail) => !!e.category && e.category !== 'Sonstiges';
 const isCustomerNumberMissing = (e: IncomingEmail) =>
   e.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER;
+const isForwardedAuto = (e: IncomingEmail) => e.forwarded_by === 'auto';
+const isForwardedManual = (e: IncomingEmail) => e.forwarded_by === 'manual';
+const isNotForwarded = (e: IncomingEmail) => !e.forwarded_by;
+
 
 type CategoryBucket = { name: string; count: number };
 
@@ -354,6 +358,28 @@ const Dashboard: React.FC = () => {
     [conversationEmails]
   );
 
+  const forwardedAutoCount = useMemo(
+    () => conversationEmails.filter(isForwardedAuto).length,
+    [conversationEmails]
+  );
+
+  const forwardedManualCount = useMemo(
+    () => conversationEmails.filter(isForwardedManual).length,
+    [conversationEmails]
+  );
+
+  const notForwardedCount = useMemo(
+    () => conversationEmails.filter(isNotForwarded).length,
+    [conversationEmails]
+  );
+
+  const forwardedAutoPercent = useMemo(() => {
+    if (totalInRange === 0) return 0;
+    return Math.round((forwardedAutoCount / totalInRange) * 100);
+  }, [forwardedAutoCount, totalInRange]);
+
+
+
   // Category distribution: per conversation
   const categoryBuckets: CategoryBucket[] = useMemo(() => {
     const buckets = categoriesWithOther.map((catName) => {
@@ -551,7 +577,7 @@ const Dashboard: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6 mb-8">
             {[
               {
                 id: 1,
@@ -581,6 +607,27 @@ const Dashboard: React.FC = () => {
               //   icon: ExclamationCircleIcon,
               //   color: 'bg-orange-100 text-orange-600',
               // },
+              {
+                id: 4,
+                name: 'Auto weitergeleitet',
+                value: forwardedAutoCount.toString(),
+                icon: EnvelopeIcon,
+                color: 'bg-indigo-100 text-indigo-600',
+              },
+              {
+                id: 5,
+                name: 'Manuell weitergeleitet',
+                value: forwardedManualCount.toString(),
+                icon: EnvelopeIcon,
+                color: 'bg-purple-100 text-purple-600',
+              },
+              {
+                id: 6,
+                name: 'Nicht weitergeleitet',
+                value: notForwardedCount.toString(),
+                icon: ExclamationCircleIcon,
+                color: 'bg-gray-100 text-gray-600',
+              },
             ].map((stat) => {
               const Icon = stat.icon;
               return (
@@ -591,7 +638,14 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div>
                       <p className="text-gray-500 text-sm">{stat.name}</p>
-                      <h2 className="text-2xl font-bold">{stat.value}</h2>
+                        <h2 className="text-2xl font-bold">
+                          {stat.value}
+                          {stat.id === 4 && totalInRange > 0 && (
+                            <span className="ml-2 text-sm font-medium text-gray-500">
+                              ({forwardedAutoPercent}%)
+                            </span>
+                          )}
+                        </h2>
                     </div>
                   </div>
                 </div>
