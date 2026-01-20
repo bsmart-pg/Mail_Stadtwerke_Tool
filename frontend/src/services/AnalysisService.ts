@@ -314,6 +314,17 @@ class AnalysisService {
 
       const email = await getEmailById(emailId);
 
+      if (email?.forwarding_completed === true) {
+        console.log("⛔ Auto-Forward SKIPPED – already completed", emailId);
+        return;
+      }
+
+      // LOCK 
+      await updateEmailAnalysisResults(messageId, {
+        forwarding_completed: true,
+        forwarded_by: forwardedBy
+      });
+
       const to_recipients = (email && email.to_recipients) ? email.to_recipients: "";
 
       const combinedResult = {
@@ -344,6 +355,10 @@ class AnalysisService {
       }
 
     } catch (error) {
+      await updateEmailAnalysisResults(messageId, {
+        forwarding_completed: false,
+        forwarded_by: null
+      });
       console.error(`Fehler bei Weiterleitung für E-Mail ${emailId}:`, error);
     }
   }
