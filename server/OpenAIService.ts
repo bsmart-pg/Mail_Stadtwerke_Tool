@@ -6,8 +6,27 @@ import {
   saveFlows,
   getExistingFlowCategories
 } from './SupabaseService';
+const { htmlToText } = require("html-to-text");
+
 // at top of file
 const pdfParse = require("pdf-parse");
+
+export function normalizeEmailHtml(html: string): string {
+  return htmlToText(html, {
+    wordwrap: false,
+    selectors: [
+      { selector: "a", options: { ignoreHref: true } },
+      { selector: "img", format: "skip" },
+      { selector: "style", format: "skip" },
+      { selector: "script", format: "skip" }
+    ],
+    preserveNewlines: false
+  })
+    .replace(/\u00A0/g, " ")      // nbsp
+    .replace(/[^\S\r\n]+/g, " ") // multiple spaces
+    .replace(/\n{3,}/g, "\n\n")  // too many newlines
+    .trim();
+}
 
 async function extractPdfTextFromBase64(base64Pdf: string): Promise<{
   text: string;
@@ -151,14 +170,11 @@ class OpenAIService {
       `
       prompt += `ANALYSE-ANWEISUNGEN:
         1. Lies den GESAMTEN Text und BETREFF sorgfältig durch, informationen können sowohl im Betreff und dem Text stehen.
-        2. Suche nach ALLEN Kundennummern. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer.
+        2. Suche nach ALLEN Kundennummern. eine Kundennummer ist IMMER 10-stellig und rein numerisch. Die ersten zwei Ziffern der Kundennummer sind immer eine der folgenden Varianten: 12, 13, 14, 15, 82, 83, 84, 85. Startet eine Kunden nummer nicht mit einer dieser Zahlenkombinationen, dann ist es auch keine Kundennummer. Oft ist sie im BETREFF
         3. Prüfe JEDEN Satz auf mögliche Kategorien
         4. Eine E-Mail kann MEHRERE Kategorien gleichzeitig betreffen
         5. Vergiss nicht, auch Nebensätze und Anhänge-Erwähnungen zu prüfen
         6. Wenn mehrere Themen in einer E-Mail behandelt werden, erkenne ALLE
-
-        Betreff: ${subject}
-        Inhalt: ${body}
 
         Antworte ausschließlich im folgenden JSON-Format:
         {
@@ -174,7 +190,9 @@ class OpenAIService {
                 }
               }
           ]
-        }`;
+        }
+
+      E-Mail-Text: \n<<START DES INHALT>>\n\nBETREFF: ${subject}\n\n ${normalizeEmailHtml(body)} \n\n<<ENDE DES INHALT>>`;
 
       console.log(prompt)
       const response = await this.analyzeText(prompt);
