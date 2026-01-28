@@ -124,7 +124,7 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
   {
-    timeoutMs = 240_000,
+    timeoutMs = 300_000,
     retries = 1,
   } = {}
 ) {
@@ -159,15 +159,17 @@ class AnalysisService {
    */
   async startBackgroundAnalysis(emailId: string, messageId: string, to_recipients: string, forwardingEmail: string): Promise<void> {
     
+    let timedOut = false;
     // 🔒 HARD WATCHDOG — guarantees termination
     const watchdog = setTimeout(async () => {
+      timedOut = true;
       console.error("⏱ Analysis watchdog fired for", messageId);
 
       await updateEmailAnalysisResults(messageId, {
-        analysis_completed: true,
+        analysis_completed: false,
         text_analysis_result: "__WATCHDOG_TIMEOUT__"
       });
-    }, 240_000); // 240 seconds
+    }, 600_000); // 10 seconds
     if (this.analysisQueue.has(messageId)) return;
     this.analysisQueue.add(messageId);
     try {
@@ -223,30 +225,89 @@ class AnalysisService {
       const combinedResult = this.combineAnalysisResults(textResult, imageResult);
       console.log('Kombiniertes Ergebnis:', combinedResult);
 
+      if (timedOut) {
+        console.warn("⛔ Skip final analysis update because watchdog already timed out:", messageId);
+        return;
+      }
 
       const isAutoQualified =
         combinedResult.customerNumber &&
         combinedResult.category &&
         combinedResult.category !== "Sonstiges";
 
-      // Aktualisiere die E-Mail in der Datenbank mit allen Ergebnissen
+      
+      // 🔒 CHECK: wurde die Mail manuell bearbeitet?
+      const existingEmail = await getEmailById(emailId);
+      const isManual =
+        existingEmail?.forwarded_by === "manual" ||
+        existingEmail?.customer_number !== null ||
+        existingEmail?.category !== null;
+
+
+
+      // // Aktualisiere die E-Mail in der Datenbank mit allen Ergebnissen
+      // await updateEmailAnalysisResults(messageId, {
+      //   customer_number: combinedResult.customerNumber,
+      //   category: combinedResult.category,
+      //   all_customer_numbers: combinedResult.allCustomerNumbers,
+      //   all_categories: combinedResult.allCategories,
+      //   text_analysis_result: JSON.stringify({
+      //     ...textResult,
+      //     allCustomerNumbers: combinedResult.allCustomerNumbers,
+      //     allCategories: combinedResult.allCategories
+      //   }),
+      //   image_analysis_result: JSON.stringify(imageResult),
+      //   analysis_completed: true,
+      //   // Aktualisiere auch den Status basierend auf den Ergebnissen
+      //   status: this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
+      //   extracted_information: combinedResult.allExtractedInformation,
+      //   forwarded_by: isAutoQualified ? "auto" : null
+      // });
+
       await updateEmailAnalysisResults(messageId, {
-        customer_number: combinedResult.customerNumber,
-        category: combinedResult.category,
-        all_customer_numbers: combinedResult.allCustomerNumbers,
-        all_categories: combinedResult.allCategories,
-        text_analysis_result: JSON.stringify({
-          ...textResult,
-          allCustomerNumbers: combinedResult.allCustomerNumbers,
-          allCategories: combinedResult.allCategories
-        }),
-        image_analysis_result: JSON.stringify(imageResult),
-        analysis_completed: true,
-        // Aktualisiere auch den Status basierend auf den Ergebnissen
-        status: this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
-        extracted_information: combinedResult.allExtractedInformation,
-        forwarded_by: isAutoQualified ? "auto" : null
-      });
+      // 🔒 Manuelle Werte niemals überschreiben
+      customer_number: isManual
+        ? existingEmail?.customer_number
+        : combinedResult.customerNumber,
+
+      category: isManual
+        ? existingEmail?.category
+        : combinedResult.category,
+
+      all_customer_numbers: isManual
+        ? existingEmail?.all_customer_numbers
+        : combinedResult.allCustomerNumbers,
+
+      all_categories: isManual
+        ? existingEmail?.all_categories
+        : combinedResult.allCategories,
+
+      // Analyse-Logs dürfen immer geschrieben werden
+      text_analysis_result: JSON.stringify({
+        ...textResult,
+        allCustomerNumbers: combinedResult.allCustomerNumbers,
+        allCategories: combinedResult.allCategories
+      }),
+
+      image_analysis_result: JSON.stringify(imageResult),
+      extracted_information: combinedResult.allExtractedInformation,
+
+      analysis_completed: true,
+
+      // 🚫 forwarded_by NIE zurücksetzen
+      forwarded_by: isManual
+        ? "manual"
+        : (isAutoQualified ? "auto" : null),
+
+      // ⚠️ Status nur ändern, wenn NICHT manuell
+      status: isManual
+        ? existingEmail?.status
+        : this.determineEmailStatus(
+            combinedResult.customerNumber,
+            combinedResult.category
+          ),
+    });
+
 
       // // 🔽 FETCH FINAL EMAIL STATE
       // const email = await getEmailById(emailId);
@@ -290,6 +351,13 @@ class AnalysisService {
 
     } catch (error) {
       console.error(`Fehler bei Hintergrund-Analyse für E-Mail ${emailId}:`, error);
+
+
+      // ✅ Wenn watchdog schon zugeschlagen hat: NICHT mehr completed=true setzen
+      if (timedOut) {
+        console.warn("⛔ Error after timeout - skip error status overwrite", messageId);
+        return;
+      }
       
       // Markiere als abgeschlossen, auch wenn Fehler aufgetreten sind
       try {
@@ -613,13 +681,13 @@ class AnalysisService {
         let combinedAllCategories = []
         let combinedExtractedInformation = []
         for (let i = 0; i < imageCount; i++) {
-          if(imageResults[0].allCustomerNumbers && imageResults[0].allCustomerNumbers.length > 0){
+          if(imageResults[i].allCustomerNumbers && imageResults[i].allCustomerNumbers.length > 0){
             combinedAllCustomerNumbers.push(...imageResults[i].allCustomerNumbers)
           }
-          if(imageResults[0].allCategories && imageResults[0].allCategories.length > 0){
+          if(imageResults[i].allCategories && imageResults[i].allCategories.length > 0){
             combinedAllCategories.push(...imageResults[i].allCategories)
           }
-          if(imageResults[0].extractedInformation && imageResults[0].extractedInformation.length > 0){
+          if(imageResults[i].extractedInformation && imageResults[i].extractedInformation.length > 0){
             combinedExtractedInformation.push(...imageResults[i].extractedInformation)
           }
           

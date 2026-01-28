@@ -139,6 +139,13 @@ const Emails: React.FC = () => {
   const [categoryDropdownPosition, setCategoryDropdownPosition] = useState({ top: 0, left: 0 });
 
   const processedFolderMap = React.useRef<Map<string, string>>(new Map());
+
+  const isWatchdogTimeout = (email: DisplayEmail) =>
+  email?.text_analysis_result === "__WATCHDOG_TIMEOUT__";
+
+  const isAnalyzing = (email: DisplayEmail) =>
+    email?.analysis_completed === false && !isWatchdogTimeout(email);
+
   async function getProcessedFolderId(mailbox: string) {
     if (!mailbox) return null;
 
@@ -887,8 +894,6 @@ const Emails: React.FC = () => {
   });
 
 
-
-
   // Status-Icon
   const getStatusIcon = (status: string, category?: string) => {
     switch(status) {
@@ -1412,14 +1417,11 @@ const Emails: React.FC = () => {
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
                                     Angefragt
                                   </span>
-                                ) : email.analysis_completed === true &&
-                                    email.text_analysis_result === "__WATCHDOG_TIMEOUT__"
-                                    ? 
-                                (
+                                ) : isWatchdogTimeout(email) ? (
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-200 text-red-900">
                                     Analyse fehlgeschlagen
                                   </span>
-                                ) : email.analysis_completed === false ? (
+                                ) : isAnalyzing(email) ? (
                                   <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
                                     Wird analysiert...
                                   </span>
@@ -1542,17 +1544,63 @@ const Emails: React.FC = () => {
                                   </div>
                                 )}
                               </div>
-                            ) : email.analysis_completed === true &&
-                                email.text_analysis_result === "__WATCHDOG_TIMEOUT__" ?
-                            (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-200 text-red-900">
-                                Analyse fehlgeschlagen
-                              </span>
-                            ) : email.analysis_completed === false ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                Wird analysiert...
-                              </span>
-                            ) : (
+                                ) : isWatchdogTimeout(email) ? (
+                                  <div className="space-y-1">
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-200 text-red-900">
+                                      Analyse fehlgeschlagen
+                                    </span>
+
+                                    {/* ✅ trotzdem manuell kategorisierbar */}
+                                    <div className="relative inline-block dropdown-wrapper">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                          setCategoryDropdownPosition({
+                                            top: rect.bottom + 4,
+                                            left: rect.left,
+                                          });
+                                          setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
+                                        }}
+                                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                                        title="Kategorie manuell hinzufügen"
+                                      >
+                                        <PlusIcon className="mr-1 h-3 w-3" />
+                                      </button>
+
+                                      {openDropdownEmailId === email.id &&
+                                        createPortal(
+                                          <div
+                                            className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem]"
+                                            style={{
+                                              top: categoryDropdownPosition.top,
+                                              left: categoryDropdownPosition.left,
+                                            }}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                          >
+                                            {categories
+                                              .filter(cat => !email.all_categories?.includes(cat))
+                                              .map(cat => (
+                                                <div
+                                                  key={cat}
+                                                  onClick={() => handleCategorySelect(email, cat)}
+                                                  className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100"
+                                                >
+                                                  {cat}
+                                                </div>
+                                              ))}
+                                          </div>,
+                                          document.body
+                                        )
+                                      }
+                                    </div>
+                                  </div>
+                                )
+                                : isAnalyzing(email) ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                    Wird analysiert...
+                                  </span>
+                                ) : (
                               <div>
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                                   Nicht kategorisiert
@@ -1609,18 +1657,35 @@ const Emails: React.FC = () => {
                           {/* Aktionen */}
                           <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col items-center space-y-2">
-                              {email.analysis_completed === true &&
-                                email.text_analysis_result === "__WATCHDOG_TIMEOUT__"  && (
+                              {isWatchdogTimeout(email) && (
                                 <button
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.stopPropagation();
-                                    analysisService.startBackgroundAnalysis(
+
+                                    // ✅ UI sofort umstellen: weg von timeout -> "Wird analysiert..."
+                                    setEmails(prev =>
+                                      prev.map(x =>
+                                        x.id === email.id
+                                          ? {
+                                              ...x,
+                                              analysis_completed: false,
+                                              text_analysis_result: null,
+                                              image_analysis_result: null,
+                                            }
+                                          : x
+                                      )
+                                    );
+
+                                    // 🔁 Analyse neu starten
+                                    await analysisService.startBackgroundAnalysis(
                                       email.id,
                                       email.message_id,
                                       email.to_recipients,
                                       settings.forwardingEmail
                                     );
-                                    loadEmails()
+
+                                    // 🔄 optional Reload (damit Resultate reinlaufen)
+                                    await loadEmails();
                                   }}
                                   className="inline-flex items-center px-3 py-1 border border-red-400 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-red-50 text-red-700"
                                   title="Analyse erneut starten"
@@ -1628,6 +1693,7 @@ const Emails: React.FC = () => {
                                   Analyse erneut
                                 </button>
                               )}
+
 
                               {(email.customer_number && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
                                 <button
