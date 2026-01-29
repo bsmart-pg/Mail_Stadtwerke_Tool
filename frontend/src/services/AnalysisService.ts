@@ -1,4 +1,4 @@
-import { updateEmailAnalysisResults, getEmailById , getSettings} from './SupabaseService';
+import { updateEmailAnalysisResults, getEmailById, updateEmailAnalysisResultsById, getSettings} from './SupabaseService';
 import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
 
@@ -165,11 +165,11 @@ class AnalysisService {
       timedOut = true;
       console.error("⏱ Analysis watchdog fired for", messageId);
 
-      await updateEmailAnalysisResults(messageId, {
+      await updateEmailAnalysisResultsById(emailId, {
         analysis_completed: false,
         text_analysis_result: "__WATCHDOG_TIMEOUT__"
       });
-    }, 600_000); // 10 seconds
+    }, 600_000); // 10 min
     if (this.analysisQueue.has(messageId)) return;
     this.analysisQueue.add(messageId);
     try {
@@ -238,10 +238,43 @@ class AnalysisService {
       
       // 🔒 CHECK: wurde die Mail manuell bearbeitet?
       const existingEmail = await getEmailById(emailId);
-      const isManual =
-        existingEmail?.forwarded_by === "manual"
+      const isManual = existingEmail?.forwarded_by === "manual";
 
+      const hasManualCategory =
+        typeof existingEmail?.category === "string" &&
+        existingEmail.category.trim() !== "";
 
+      const hasManualCustomer =
+        typeof existingEmail?.customer_number === "string" &&
+        existingEmail.customer_number.trim() !== "";
+
+      const manualNums = Array.isArray(existingEmail?.all_customer_numbers)
+        ? existingEmail.all_customer_numbers
+        : [];
+
+      const manualCats = Array.isArray(existingEmail?.all_categories)
+        ? existingEmail.all_categories
+        : [];
+
+      const finalCustomerNumber =
+        isManual && hasManualCustomer
+          ? existingEmail!.customer_number
+          : combinedResult.customerNumber;
+
+      const finalCategory =
+        isManual && hasManualCategory
+          ? existingEmail!.category
+          : combinedResult.category;
+
+      const finalAllCustomerNumbers =
+        isManual && manualNums.length > 0
+          ? manualNums
+          : combinedResult.allCustomerNumbers;
+
+      const finalAllCategories =
+        isManual && manualCats.length > 0
+          ? manualCats
+          : combinedResult.allCategories;
 
       // // Aktualisiere die E-Mail in der Datenbank mit allen Ergebnissen
       // await updateEmailAnalysisResults(messageId, {
@@ -262,88 +295,30 @@ class AnalysisService {
       //   forwarded_by: isAutoQualified ? "auto" : null
       // });
 
-      await updateEmailAnalysisResults(messageId, {
-      // 🔒 Manuelle Werte niemals überschreiben
-      customer_number: isManual
-        ? existingEmail?.customer_number
-        : combinedResult.customerNumber,
+      await updateEmailAnalysisResultsById(emailId, {
+        customer_number: finalCustomerNumber,
+        category: finalCategory,
+        all_customer_numbers: finalAllCustomerNumbers,
+        all_categories: finalAllCategories,
 
-      category: isManual
-        ? existingEmail?.category
-        : combinedResult.category,
+        text_analysis_result: JSON.stringify({
+          ...textResult,
+          allCustomerNumbers: combinedResult.allCustomerNumbers,
+          allCategories: combinedResult.allCategories
+        }),
 
-      all_customer_numbers: isManual
-        ? existingEmail?.all_customer_numbers
-        : combinedResult.allCustomerNumbers,
+        image_analysis_result: JSON.stringify(imageResult),
+        extracted_information: combinedResult.allExtractedInformation,
+        analysis_completed: true,
 
-      all_categories: isManual
-        ? existingEmail?.all_categories
-        : combinedResult.allCategories,
+        forwarded_by: isManual
+          ? "manual"
+          : (isAutoQualified ? "auto" : null),
 
-      // Analyse-Logs dürfen immer geschrieben werden
-      text_analysis_result: JSON.stringify({
-        ...textResult,
-        allCustomerNumbers: combinedResult.allCustomerNumbers,
-        allCategories: combinedResult.allCategories
-      }),
-
-      image_analysis_result: JSON.stringify(imageResult),
-      extracted_information: combinedResult.allExtractedInformation,
-
-      analysis_completed: true,
-
-      // 🚫 forwarded_by NIE zurücksetzen
-      forwarded_by: isManual
-        ? "manual"
-        : (isAutoQualified ? "auto" : null),
-
-      // ⚠️ Status nur ändern, wenn NICHT manuell
-      status: isManual
-        ? existingEmail?.status
-        : this.determineEmailStatus(
-            combinedResult.customerNumber,
-            combinedResult.category
-          ),
-    });
-
-
-      // // 🔽 FETCH FINAL EMAIL STATE
-      // const email = await getEmailById(emailId);
-      // console.log("This is the Email")
-      // console.log(email)
-      // if (!email) return;
-
-      // // 🔒 GUARDS: never forward twice
-      // if (email.forwarding_completed === true || email.forwarded === true) {
-      //   console.log("⏭ Skipping auto-forward (already completed)", emailId);
-      //   return;
-      // }
-
-      // // ⚙️ SETTINGS CHECK (USING EXISTING FUNCTION)
-      // const settings = await getSettings();
-      // const autoForwardEnabled =
-      //   settings.find(s => s.setting_key === 'autoForward')?.setting_value === 'true';
-
-      // console.log("autoForwardEnabled")
-      // console.log(autoForwardEnabled)
-
-      // if (!autoForwardEnabled) return;
-
-      // const shouldAutoForward =
-      //   email.customer_number &&
-      //   email.category &&
-      //   email.category !== "Sonstiges";
-
-      // if (shouldAutoForward) {
-      //   console.log("▶ AUTO-FORWARD (analysis completed)", emailId);
-
-      //   await this.startForwarding(
-      //     emailId,
-      //     messageId,
-      //     forwardingEmail,
-      //     "auto"
-      //   );
-      // }
+        status: isManual
+          ? existingEmail?.status
+          : this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
+      });
 
       console.log(`Hintergrund-Analyse für E-Mail ${emailId} abgeschlossen`);
 
@@ -359,7 +334,7 @@ class AnalysisService {
       
       // Markiere als abgeschlossen, auch wenn Fehler aufgetreten sind
       try {
-        await updateEmailAnalysisResults(messageId, {
+        await updateEmailAnalysisResultsById(emailId, {
           analysis_completed: true,
           text_analysis_result: `Fehler: ${error instanceof Error ? error.message : String(error)}`,
           image_analysis_result: null
@@ -386,7 +361,7 @@ class AnalysisService {
       }
 
       // LOCK 
-      await updateEmailAnalysisResults(messageId, {
+      await updateEmailAnalysisResultsById(emailId, {
         forwarding_completed: true,
         forwarded_by: forwardedBy
       });
@@ -414,14 +389,14 @@ class AnalysisService {
         });
         
         // Markiere als nicht weitergeleitet
-        await updateEmailAnalysisResults(messageId, {
+        await updateEmailAnalysisResultsById(emailId, {
           forwarded: false,
           forwarding_completed: true
         });
       }
 
     } catch (error) {
-      await updateEmailAnalysisResults(messageId, {
+      await updateEmailAnalysisResultsById(emailId, {
         forwarding_completed: false,
         forwarded_by: null
       });
@@ -440,7 +415,7 @@ class AnalysisService {
       await this.forwardManualEmailWithTags(email, 1,1 , forwardingEmail, to_recipients);
 
       // 👇 minimaler Sync für den Guard & Statistik
-      await updateEmailAnalysisResults(messageId, {
+      await updateEmailAnalysisResultsById(emailId, {
         forwarded: true,
         forwarding_completed: true,
         forwarded_by: "manual"
@@ -914,7 +889,7 @@ class AnalysisService {
       }
 
       // Markiere Weiterleitung als abgeschlossen
-      await updateEmailAnalysisResults(messageId, {
+      await updateEmailAnalysisResultsById(emailId, {
         forwarded: true,
         forwarding_completed: true,
       });

@@ -289,6 +289,17 @@ const Emails: React.FC = () => {
         nextCats = current;
       }
 
+      // ✅ CHANGE DETECTION: nur updaten wenn sich wirklich was ändert
+      const changed =
+        email.category !== cat ||
+        JSON.stringify(current) !== JSON.stringify(nextCats);
+
+      if (!changed) {
+        console.log("⏭ Skip category update (no change)", email.id);
+        setOpenDropdownEmailId(null);
+        return;
+      }
+      
       await updateEmailCategories(email.id, {
         all_categories: nextCats,
         category: cat,
@@ -329,6 +340,16 @@ const Emails: React.FC = () => {
 
       const nextCats = next.length === 0 ? ["Sonstiges"] : next;
 
+      // ✅ CHANGE DETECTION
+      const changed =
+        email.category !== nextMain ||
+        JSON.stringify(current) !== JSON.stringify(nextCats);
+
+      if (!changed) {
+        console.log("⏭ Skip category remove update (no change)", email.id);
+        return;
+      }
+
       await updateEmailCategories(email.id, {
         all_categories: nextCats,
         category: nextMain,
@@ -347,23 +368,31 @@ const Emails: React.FC = () => {
   };
 
   const handleAddCustomerNumber = async (email: DisplayEmail, raw: string) => {
-    const num = (raw || '').trim();
+    const num = (raw || "").trim();
     if (!num) return;
 
-    const current = Array.isArray(email.all_customer_numbers) ? [...email.all_customer_numbers] : [];
+    const current = Array.isArray(email.all_customer_numbers)
+      ? [...email.all_customer_numbers]
+      : [];
+
     if (current.includes(num)) {
       setOpenNumberEditorEmailId(null);
-      setNewCustomerNumber('');
+      setNewCustomerNumber("");
       return;
     }
 
+    const next = [...current, num];
+
+    // ✅ CHANGE DETECTION
+    const changed = JSON.stringify(current) !== JSON.stringify(next);
+    if (!changed) return;
+
     const wasEmpty = current.length === 0;
-    current.push(num);
 
     await updateEmailCustomerNumbers(email.id, {
-      all_customer_numbers: current,
-      customer_number: current[0] ?? null,
-      forwarded_by: "manual"
+      all_customer_numbers: next,
+      customer_number: next[0] ?? null,
+      forwarded_by: "manual",
     });
 
     if (wasEmpty && email.status === EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
@@ -373,40 +402,50 @@ const Emails: React.FC = () => {
       );
     }
 
-    setEmails(prev =>
-      prev.map(e =>
+    setEmails((prev) =>
+      prev.map((e) =>
         e.id === email.id
-          ? { ...e, all_customer_numbers: current, customer_number: current[0] ?? null }
+          ? { ...e, all_customer_numbers: next, customer_number: next[0] ?? null }
           : e
       )
     );
 
     setOpenNumberEditorEmailId(null);
-    setNewCustomerNumber('');
+    setNewCustomerNumber("");
   };
 
+
   const handleRemoveCustomerNumber = async (email: DisplayEmail, index: number) => {
-    const current = Array.isArray(email.all_customer_numbers) ? [...email.all_customer_numbers] : [];
-    current.splice(index, 1);
+    const current = Array.isArray(email.all_customer_numbers)
+      ? [...email.all_customer_numbers]
+      : [];
+
+    const next = [...current];
+    next.splice(index, 1);
+
+    // ✅ CHANGE DETECTION
+    const changed = JSON.stringify(current) !== JSON.stringify(next);
+    if (!changed) return;
 
     await updateEmailCustomerNumbers(email.id, {
-      all_customer_numbers: current,
-      customer_number: current[0] ?? null,
-      forwarded_by: "manual"
+      all_customer_numbers: next,
+      customer_number: next[0] ?? null,
+      forwarded_by: "manual",
     });
 
-    if (current.length === 0 && email.status !== EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
+    if (next.length === 0 && email.status !== EMAIL_STATUS.FEHLENDE_KUNDENNUMMER) {
       await handleStatusUpdate(email.id, EMAIL_STATUS.FEHLENDE_KUNDENNUMMER);
     }
 
-    setEmails(prev =>
-      prev.map(e =>
+    setEmails((prev) =>
+      prev.map((e) =>
         e.id === email.id
-          ? { ...e, all_customer_numbers: current, customer_number: current[0] ?? null }
+          ? { ...e, all_customer_numbers: next, customer_number: next[0] ?? null }
           : e
       )
     );
   };
+
 
 
   const handleForwardClick = async (emailId: string) => {

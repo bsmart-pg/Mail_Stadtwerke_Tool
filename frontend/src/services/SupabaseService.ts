@@ -761,6 +761,48 @@ export const updateEmailAnalysisResults = async (messageId: string, updates: {
   }
 };
 
+
+export const updateEmailAnalysisResultsById = async (
+  emailId: string,
+  updates: {
+    text_analysis_result?: string | null;
+    image_analysis_result?: string | null;
+    customer_number?: string | null;
+    category?: string | null;
+    all_customer_numbers?: string[] | null;
+    all_categories?: string[] | null;
+    status?: string;
+    analysis_completed?: boolean;
+    forwarded?: boolean;
+    forwarding_completed?: boolean;
+    extracted_information?: object;
+    forwarded_by?: 'auto' | 'manual' | null;
+  }
+) => {
+  try {
+    console.log('Aktualisiere E-Mail-Analyse-Ergebnisse:', { emailId, updates });
+
+    const { data, error } = await supabase
+      .from('incoming_emails')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', emailId);
+
+    if (error) {
+      console.error('Supabase Update Fehler:', error);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Fehler beim Aktualisieren der Analyse-Ergebnisse:', error);
+    throw error;
+  }
+};
+
+
 export const updateEmailMessageId = async (
   emailId: string,        // incoming_emails.id (DB-ID, nicht message_id)
   newMessageId: string
@@ -835,5 +877,6 @@ export default {
   getEmailByMessageId,
   updateEmailAnalysis,
   getEmailById,
-  updateEmailAnalysisResults
+  updateEmailAnalysisResults,
+  updateEmailAnalysisResultsById
 }; 
