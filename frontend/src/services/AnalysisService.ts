@@ -1,4 +1,4 @@
-import { updateEmailAnalysisResults, getEmailById, updateEmailAnalysisResultsById, getSettings} from './SupabaseService';
+import { updateEmailAnalysisResults, getEmailById , updateEmailAnalysisResultsById ,getSettings} from './SupabaseService';
 import GraphService from './GraphService';
 import { EMAIL_STATUS } from '../types/supabase';
 
@@ -165,11 +165,11 @@ class AnalysisService {
       timedOut = true;
       console.error("⏱ Analysis watchdog fired for", messageId);
 
-      await updateEmailAnalysisResultsById(emailId, {
+      await updateEmailAnalysisResults(messageId, {
         analysis_completed: false,
         text_analysis_result: "__WATCHDOG_TIMEOUT__"
       });
-    }, 600_000); // 10 min
+    }, 600_000); // 10 seconds
     if (this.analysisQueue.has(messageId)) return;
     this.analysisQueue.add(messageId);
     try {
@@ -295,7 +295,7 @@ class AnalysisService {
       //   forwarded_by: isAutoQualified ? "auto" : null
       // });
 
-      await updateEmailAnalysisResultsById(emailId, {
+      await updateEmailAnalysisResults(messageId, {
         customer_number: finalCustomerNumber,
         category: finalCategory,
         all_customer_numbers: finalAllCustomerNumbers,
@@ -334,7 +334,7 @@ class AnalysisService {
       
       // Markiere als abgeschlossen, auch wenn Fehler aufgetreten sind
       try {
-        await updateEmailAnalysisResultsById(emailId, {
+        await updateEmailAnalysisResults(messageId, {
           analysis_completed: true,
           text_analysis_result: `Fehler: ${error instanceof Error ? error.message : String(error)}`,
           image_analysis_result: null
@@ -361,7 +361,7 @@ class AnalysisService {
       }
 
       // LOCK 
-      await updateEmailAnalysisResultsById(emailId, {
+      await updateEmailAnalysisResults(messageId, {
         forwarding_completed: true,
         forwarded_by: forwardedBy
       });
@@ -389,14 +389,14 @@ class AnalysisService {
         });
         
         // Markiere als nicht weitergeleitet
-        await updateEmailAnalysisResultsById(emailId, {
+        await updateEmailAnalysisResults(messageId, {
           forwarded: false,
           forwarding_completed: true
         });
       }
 
     } catch (error) {
-      await updateEmailAnalysisResultsById(emailId, {
+      await updateEmailAnalysisResults(messageId, {
         forwarding_completed: false,
         forwarded_by: null
       });
@@ -415,7 +415,7 @@ class AnalysisService {
       await this.forwardManualEmailWithTags(email, 1,1 , forwardingEmail, to_recipients);
 
       // 👇 minimaler Sync für den Guard & Statistik
-      await updateEmailAnalysisResultsById(emailId, {
+      await updateEmailAnalysisResults(messageId, {
         forwarded: true,
         forwarding_completed: true,
         forwarded_by: "manual"
@@ -889,7 +889,7 @@ class AnalysisService {
       }
 
       // Markiere Weiterleitung als abgeschlossen
-      await updateEmailAnalysisResultsById(emailId, {
+      await updateEmailAnalysisResults(messageId, {
         forwarded: true,
         forwarding_completed: true,
       });
