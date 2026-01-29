@@ -239,9 +239,7 @@ class AnalysisService {
       // 🔒 CHECK: wurde die Mail manuell bearbeitet?
       const existingEmail = await getEmailById(emailId);
       const isManual =
-        existingEmail?.forwarded_by === "manual" ||
-        existingEmail?.customer_number !== null ||
-        existingEmail?.category !== null;
+        existingEmail?.forwarded_by === "manual"
 
 
 
