@@ -154,11 +154,285 @@ async function fetchWithRetry(
 class AnalysisService {
   private analysisQueue: Set<string> = new Set();
 
+    // ✅ NEW: concurrency limit
+  private maxParallelAnalyses = 3;
+  private runningAnalyses = 0;
+  private pendingTasks: Array<() => Promise<void>> = [];
+  private queuedIds: Set<string> = new Set();
+  private runningIds: Set<string> = new Set();
+
+
+  private enqueue(task: () => Promise<void>) {
+    this.pendingTasks.push(task);
+
+    console.log("📥 ENQUEUE", {
+      pending: this.pendingTasks.length,
+      running: this.runningAnalyses,
+      max: this.maxParallelAnalyses
+    });
+
+    this.runNext();
+  }
+
+  private async runNext() {
+    if (this.runningAnalyses >= this.maxParallelAnalyses) return;
+
+    const next = this.pendingTasks.shift();
+    if (!next) return;
+
+    this.runningAnalyses++;
+
+    console.log("🚀 START TASK", {
+      pending: this.pendingTasks.length,
+      running: this.runningAnalyses,
+      max: this.maxParallelAnalyses
+    });
+
+    try {
+      await next();
+    } finally {
+      this.runningAnalyses--;
+
+      console.log("✅ FINISH TASK", {
+        pending: this.pendingTasks.length,
+        running: this.runningAnalyses,
+        max: this.maxParallelAnalyses
+      });
+
+      this.runNext();
+    }
+  }
+
+
   /**
    * Startet die Hintergrund-Analyse für eine E-Mail
    */
-  async startBackgroundAnalysis(emailId: string, messageId: string, to_recipients: string, forwardingEmail: string): Promise<void> {
+  // async startBackgroundAnalysis(emailId: string, messageId: string, to_recipients: string, forwardingEmail: string): Promise<void> {
     
+  //   let timedOut = false;
+  //   // 🔒 HARD WATCHDOG — guarantees termination
+  //   const watchdog = setTimeout(async () => {
+  //     timedOut = true;
+  //     console.error("⏱ Analysis watchdog fired for", messageId);
+
+  //     await updateEmailAnalysisResults(messageId, {
+  //       analysis_completed: false,
+  //       text_analysis_result: "__WATCHDOG_TIMEOUT__"
+  //     });
+  //   }, 600_000); // 10 seconds
+  //   if (this.analysisQueue.has(messageId)) return;
+  //   this.analysisQueue.add(messageId);
+  //   try {
+  //     console.log(`Starte Hintergrund-Analyse für E-Mail ${emailId}`);
+
+  //     // Hole die vollständige E-Mail von Microsoft Graph mit allen Anhängen
+  //     const fullEmail = await GraphService.getEmailContent(messageId, to_recipients);
+      
+  //     // Lade alle Bild-Anhänge vollständig (base64)
+  //     if (fullEmail.hasAttachments && fullEmail.attachments && Array.isArray(fullEmail.attachments)) {
+  //       console.log(`E-Mail hat ${fullEmail.attachments.length} Anhänge - lade Bilder vollständig...`);
+        
+  //       for (let i = 0; i < fullEmail.attachments.length; i++) {
+  //         const attachment = fullEmail.attachments[i] as any;
+          
+  //         // Nur Bilder verarbeiten
+  //         if (attachment.contentType && attachment.contentType.startsWith('image/') && attachment.id) {
+  //           try {
+  //             console.log(`Lade base64 für Bild-Attachment: ${attachment.name}`);
+  //             const buffer = await GraphService.getAttachmentContent(fullEmail.id, attachment.id, fullEmail.to_recipients);
+  //             // const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  //             const base64 = arrayBufferToBase64(buffer);
+  //             attachment.contentBytes = base64;
+  //             console.log(`Base64 erfolgreich geladen für ${attachment.name}, Größe: ${base64.length} Zeichen`);
+  //           } catch (error) {
+  //             console.error(`Fehler beim Laden von base64 für Attachment ${attachment.name}:`, error);
+  //             attachment.contentBytes = null;
+  //           }
+  //         }
+  //       }
+        
+  //       // Zähle erfolgreich geladene Bilder
+  //       const loadedImages = fullEmail.attachments.filter((att: any) => 
+  //         att.contentType?.startsWith('image/') && att.contentBytes
+  //       ).length;
+  //       const totalImages = fullEmail.attachments.filter((att: any) => 
+  //         att.contentType?.startsWith('image/')
+  //       ).length;
+        
+  //       console.log(`Bildanhänge für Hintergrund-Analyse geladen: ${loadedImages}/${totalImages}`);
+  //     }
+      
+  //     // Starte Text- und Bildanalyse parallel mit der vollständig geladenen E-Mail
+  //     const [textResult, imageResult] = await Promise.all([
+  //       this.analyzeEmailText(fullEmail),
+  //       this.analyzeEmailImages(fullEmail)
+  //     ]);
+
+  //     console.log('Text-Analyse Ergebnis:', textResult);
+  //     console.log('Bild-Analyse Ergebnis:', imageResult);
+
+  //     // Kombiniere die Ergebnisse
+  //     const combinedResult = this.combineAnalysisResults(textResult, imageResult);
+  //     console.log('Kombiniertes Ergebnis:', combinedResult);
+
+  //     if (timedOut) {
+  //       console.warn("⛔ Skip final analysis update because watchdog already timed out:", messageId);
+  //       return;
+  //     }
+
+  //     const isAutoQualified =
+  //       combinedResult.customerNumber &&
+  //       combinedResult.category &&
+  //       combinedResult.category !== "Sonstiges";
+
+      
+  //     // 🔒 CHECK: wurde die Mail manuell bearbeitet?
+  //     const existingEmail = await getEmailById(emailId);
+  //     const isManual = existingEmail?.forwarded_by === "manual";
+
+  //     const hasManualCategory =
+  //       typeof existingEmail?.category === "string" &&
+  //       existingEmail.category.trim() !== "";
+
+  //     const hasManualCustomer =
+  //       typeof existingEmail?.customer_number === "string" &&
+  //       existingEmail.customer_number.trim() !== "";
+
+  //     const manualNums = Array.isArray(existingEmail?.all_customer_numbers)
+  //       ? existingEmail.all_customer_numbers
+  //       : [];
+
+  //     const manualCats = Array.isArray(existingEmail?.all_categories)
+  //       ? existingEmail.all_categories
+  //       : [];
+
+  //     const finalCustomerNumber =
+  //       isManual && hasManualCustomer
+  //         ? existingEmail!.customer_number
+  //         : combinedResult.customerNumber;
+
+  //     const finalCategory =
+  //       isManual && hasManualCategory
+  //         ? existingEmail!.category
+  //         : combinedResult.category;
+
+  //     const finalAllCustomerNumbers =
+  //       isManual && manualNums.length > 0
+  //         ? manualNums
+  //         : combinedResult.allCustomerNumbers;
+
+  //     const finalAllCategories =
+  //       isManual && manualCats.length > 0
+  //         ? manualCats
+  //         : combinedResult.allCategories;
+
+  //     // // Aktualisiere die E-Mail in der Datenbank mit allen Ergebnissen
+  //     // await updateEmailAnalysisResults(messageId, {
+  //     //   customer_number: combinedResult.customerNumber,
+  //     //   category: combinedResult.category,
+  //     //   all_customer_numbers: combinedResult.allCustomerNumbers,
+  //     //   all_categories: combinedResult.allCategories,
+  //     //   text_analysis_result: JSON.stringify({
+  //     //     ...textResult,
+  //     //     allCustomerNumbers: combinedResult.allCustomerNumbers,
+  //     //     allCategories: combinedResult.allCategories
+  //     //   }),
+  //     //   image_analysis_result: JSON.stringify(imageResult),
+  //     //   analysis_completed: true,
+  //     //   // Aktualisiere auch den Status basierend auf den Ergebnissen
+  //     //   status: this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
+  //     //   extracted_information: combinedResult.allExtractedInformation,
+  //     //   forwarded_by: isAutoQualified ? "auto" : null
+  //     // });
+
+  //     await updateEmailAnalysisResults(messageId, {
+  //       customer_number: finalCustomerNumber,
+  //       category: finalCategory,
+  //       all_customer_numbers: finalAllCustomerNumbers,
+  //       all_categories: finalAllCategories,
+
+  //       text_analysis_result: JSON.stringify({
+  //         ...textResult,
+  //         allCustomerNumbers: combinedResult.allCustomerNumbers,
+  //         allCategories: combinedResult.allCategories
+  //       }),
+
+  //       image_analysis_result: JSON.stringify(imageResult),
+  //       extracted_information: combinedResult.allExtractedInformation,
+  //       analysis_completed: true,
+
+  //       forwarded_by: isManual
+  //         ? "manual"
+  //         : (isAutoQualified ? "auto" : null),
+
+  //       status: isManual
+  //         ? existingEmail?.status
+  //         : this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
+  //     });
+
+  //     console.log(`Hintergrund-Analyse für E-Mail ${emailId} abgeschlossen`);
+
+  //   } catch (error) {
+  //     console.error(`Fehler bei Hintergrund-Analyse für E-Mail ${emailId}:`, error);
+
+
+  //     // ✅ Wenn watchdog schon zugeschlagen hat: NICHT mehr completed=true setzen
+  //     if (timedOut) {
+  //       console.warn("⛔ Error after timeout - skip error status overwrite", messageId);
+  //       return;
+  //     }
+      
+  //     // Markiere als abgeschlossen, auch wenn Fehler aufgetreten sind
+  //     try {
+  //       await updateEmailAnalysisResults(messageId, {
+  //         analysis_completed: true,
+  //         text_analysis_result: `Fehler: ${error instanceof Error ? error.message : String(error)}`,
+  //         image_analysis_result: null
+  //       });
+  //     } catch (updateError) {
+  //       console.error('Fehler beim Aktualisieren des Fehlerstatus:', updateError);
+  //     }
+  //   } finally {
+  //     clearTimeout(watchdog);          // 🧹 stop watchdog
+  //     this.analysisQueue.delete(messageId); // 🧹 unlock
+  //   }
+  // }
+
+  // QUEUE TEST-----------
+
+  async startBackgroundAnalysis(
+    emailId: string,
+    messageId: string,
+    to_recipients: string,
+    forwardingEmail: string
+  ): Promise<void> {
+    // ✅ doppelte Analyse verhindern
+    if (this.analysisQueue.has(messageId)) return;
+
+    this.analysisQueue.add(messageId);
+    this.queuedIds.add(messageId); // ✅ queued
+
+    // ✅ in Queue schieben statt sofort losrennen
+    this.enqueue(async () => {
+      this.queuedIds.delete(messageId);  // ✅ move out of queue
+      this.runningIds.add(messageId);    // ✅ mark running
+
+      try {
+        await this._runBackgroundAnalysis(emailId, messageId, to_recipients, forwardingEmail);
+      } finally {
+        this.runningIds.delete(messageId); // ✅ done running
+      }
+    });
+  }
+
+  private async _runBackgroundAnalysis(
+    emailId: string,
+    messageId: string,
+    to_recipients: string,
+    forwardingEmail: string
+  ): Promise<void> {
+    console.log("🧠 RUN ANALYSIS", { messageId, emailId });
+
     let timedOut = false;
     // 🔒 HARD WATCHDOG — guarantees termination
     const watchdog = setTimeout(async () => {
@@ -169,9 +443,8 @@ class AnalysisService {
         analysis_completed: false,
         text_analysis_result: "__WATCHDOG_TIMEOUT__"
       });
-    }, 600_000); // 10 seconds
-    if (this.analysisQueue.has(messageId)) return;
-    this.analysisQueue.add(messageId);
+    }, 600_000); // 10 minutes
+
     try {
       console.log(`Starte Hintergrund-Analyse für E-Mail ${emailId}`);
 
@@ -276,25 +549,6 @@ class AnalysisService {
           ? manualCats
           : combinedResult.allCategories;
 
-      // // Aktualisiere die E-Mail in der Datenbank mit allen Ergebnissen
-      // await updateEmailAnalysisResults(messageId, {
-      //   customer_number: combinedResult.customerNumber,
-      //   category: combinedResult.category,
-      //   all_customer_numbers: combinedResult.allCustomerNumbers,
-      //   all_categories: combinedResult.allCategories,
-      //   text_analysis_result: JSON.stringify({
-      //     ...textResult,
-      //     allCustomerNumbers: combinedResult.allCustomerNumbers,
-      //     allCategories: combinedResult.allCategories
-      //   }),
-      //   image_analysis_result: JSON.stringify(imageResult),
-      //   analysis_completed: true,
-      //   // Aktualisiere auch den Status basierend auf den Ergebnissen
-      //   status: this.determineEmailStatus(combinedResult.customerNumber, combinedResult.category),
-      //   extracted_information: combinedResult.allExtractedInformation,
-      //   forwarded_by: isAutoQualified ? "auto" : null
-      // });
-
       await updateEmailAnalysisResults(messageId, {
         customer_number: finalCustomerNumber,
         category: finalCategory,
@@ -347,6 +601,43 @@ class AnalysisService {
       this.analysisQueue.delete(messageId); // 🧹 unlock
     }
   }
+
+  getLocalQueueInfo(messageId: string): {
+      state: "running" | "queued" | "idle";
+      position?: number;
+      runningCount: number;
+      pendingCount: number;
+    } {
+      if (this.runningIds.has(messageId)) {
+        return {
+          state: "running",
+          runningCount: this.runningAnalyses,
+          pendingCount: this.pendingTasks.length
+        };
+      }
+
+      if (this.queuedIds.has(messageId)) {
+        // grobe Position = wie viele queued vor dir sind
+        // (nicht perfekt aber reicht meist fürs UI)
+        const position = Array.from(this.queuedIds).indexOf(messageId) + 1;
+
+        return {
+          state: "queued",
+          position: position > 0 ? position : undefined,
+          runningCount: this.runningAnalyses,
+          pendingCount: this.pendingTasks.length
+        };
+      }
+
+      return {
+        state: "idle",
+        runningCount: this.runningAnalyses,
+        pendingCount: this.pendingTasks.length
+      };
+    }
+
+
+   // QUEUE TEST-----------
 
   async startForwarding(emailId: string, messageId: string, forwardingEmail: string, forwardedBy: 'auto' | 'manual' ): Promise<void> {
     try {

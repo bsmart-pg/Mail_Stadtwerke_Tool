@@ -78,6 +78,12 @@ const getPrimaryInboxRecipient = (email: any): string => {
   return fallback;
 };
 
+const getQueueState = (email: DisplayEmail) => {
+  if (!email?.message_id) return { state: "idle" as const };
+  return analysisService.getLocalQueueInfo(email.message_id);
+};
+
+
 const mapToDisplayEmail = (email: any): DisplayEmail => ({
   ...email,
   sender: email.sender ?? email.sender_email ?? "",
@@ -223,6 +229,25 @@ const Emails: React.FC = () => {
 
   const [openNumberEditorEmailId, setOpenNumberEditorEmailId] = useState<string | null>(null);
   const [newCustomerNumber, setNewCustomerNumber] = useState('');
+
+  const [, forceRender] = useState(0);
+
+  useEffect(() => {
+    const hasQueueActivity = emails.some((e) => {
+      if (!e.message_id) return false;
+      const q = analysisService.getLocalQueueInfo(e.message_id);
+      return q.state === "queued" || q.state === "running";
+    });
+
+    if (!hasQueueActivity) return;
+
+    const t = setInterval(() => {
+      forceRender((x) => x + 1);
+    }, 1000); // ✅ 1 Sekunde reicht
+
+    return () => clearInterval(t);
+  }, [emails]);
+
 
   const forwardSuggestions = [
     'kic.service-swi@swsteinburg.de',
@@ -1363,57 +1388,121 @@ const Emails: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {filteredEmails.length > 0 ? filteredEmails.map((email) => (
-                        <tr 
-                          key={email.id}
-                          className="hover:bg-gray-50 cursor-pointer"
-                        >  
-                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center">
-                              {getStatusIcon(email.status, email.category === null ? undefined : email.category)}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap w-60 max-w-60">
-                            <div className="text-sm font-medium text-gray-900 whitespace-normal break-words"  onClick={() => handleEmailClick(email.id, email.message_id, email.to_recipients)}>{email.subject}</div>
-                            {email.to_recipients && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                  <span
-                                    key={`${email.id}-rcp`}
-                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
-                                    title={email.to_recipients}
-                                  >
-                                    {email.to_recipients}
-                                  </span>
-                                
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{email.sender}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{email.date}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            {email.all_customer_numbers && email.all_customer_numbers.length > 0 ? (
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap">
-                                  {email.all_customer_numbers.map((num, index) => (
-                                    <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-1 mb-1">
-                                      {num}
-                                      <button
-                                        onClick={() => {
-                                          handleRemoveCustomerNumber(email, index);
-                                        }}
-                                        className="ml-1 text-blue-700 hover:text-red-600"
-                                      >
-                                        <XMarkIcon className="h-3 w-3" />
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
+                      {filteredEmails.length > 0 ? filteredEmails.map((email) => {
+                        const q = getQueueState(email);
 
-                                <div className="relative inline-block">
+                        return (
+                          <tr 
+                            key={email.id}
+                            className="hover:bg-gray-50 cursor-pointer"
+                          >  
+                            <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center">
+                                {getStatusIcon(email.status, email.category === null ? undefined : email.category)}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap w-60 max-w-60">
+                              <div className="text-sm font-medium text-gray-900 whitespace-normal break-words"  onClick={() => handleEmailClick(email.id, email.message_id, email.to_recipients)}>{email.subject}</div>
+                              {email.to_recipients && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                    <span
+                                      key={`${email.id}-rcp`}
+                                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                                      title={email.to_recipients}
+                                    >
+                                      {email.to_recipients}
+                                    </span>
+                                  
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-500">{email.sender}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-500">{email.date}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              {email.all_customer_numbers && email.all_customer_numbers.length > 0 ? (
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap">
+                                    {email.all_customer_numbers.map((num, index) => (
+                                      <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-1 mb-1">
+                                        {num}
+                                        <button
+                                          onClick={() => {
+                                            handleRemoveCustomerNumber(email, index);
+                                          }}
+                                          className="ml-1 text-blue-700 hover:text-red-600"
+                                        >
+                                          <XMarkIcon className="h-3 w-3" />
+                                        </button>
+                                      </span>
+                                    ))}
+                                  </div>
+
+                                  <div className="relative inline-block">
+                                    {openNumberEditorEmailId === email.id ? (
+                                      <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
+                                        <input
+                                          autoFocus
+                                          type="text"
+                                          placeholder="Neue Kundennummer"
+                                          value={newCustomerNumber}
+                                          onChange={(e) => setNewCustomerNumber(e.target.value)}
+                                          className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleAddCustomerNumber(email, newCustomerNumber);
+                                            if (e.key === 'Escape') { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }
+                                          }}
+                                        />
+                                        <div className="flex justify-end space-x-2">
+                                          <button className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                            onClick={() => { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }}>
+                                            Abbrechen
+                                          </button>
+                                          <button className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                            onClick={() => handleAddCustomerNumber(email, newCustomerNumber)}>
+                                            Speichern
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setOpenNumberEditorEmailId(email.id); setNewCustomerNumber(''); }}
+                                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                                        title="Kundennummer hinzufügen"
+                                      >
+                                        <PlusIcon className="mr-1 h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-2 relative">
+                                  {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT ? (
+                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                                      Angefragt
+                                    </span>
+                                  ) : isWatchdogTimeout(email) ? (
+                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-200 text-red-900">
+                                      Analyse fehlgeschlagen
+                                    </span>
+                                  ) : q.state === "queued" ? (
+                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                      In Warteschlange...
+                                    </span>
+                                  ) : (q.state === "running" || isAnalyzing(email)) ? (
+                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                      Wird analysiert...
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                      Fehlt
+                                    </span>
+                                  )
+                                  }
+
                                   {openNumberEditorEmailId === email.id ? (
                                     <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
                                       <input
@@ -1449,203 +1538,35 @@ const Emails: React.FC = () => {
                                     </button>
                                   )}
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-2 relative">
-                                {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT ? (
-                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                                    Angefragt
-                                  </span>
-                                ) : isWatchdogTimeout(email) ? (
-                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-200 text-red-900">
-                                    Analyse fehlgeschlagen
-                                  </span>
-                                ) : isAnalyzing(email) ? (
-                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                                    Wird analysiert...
-                                  </span>
-                                ) : (
-                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
-                                    Fehlt
-                                  </span>
-                                )
-                                }
-
-                                {openNumberEditorEmailId === email.id ? (
-                                  <div className="absolute z-50 bottom-full mb-2 left-0 bg-white border border-gray-200 rounded shadow-md p-2 w-48">
-                                    <input
-                                      autoFocus
-                                      type="text"
-                                      placeholder="Neue Kundennummer"
-                                      value={newCustomerNumber}
-                                      onChange={(e) => setNewCustomerNumber(e.target.value)}
-                                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleAddCustomerNumber(email, newCustomerNumber);
-                                        if (e.key === 'Escape') { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }
-                                      }}
-                                    />
-                                    <div className="flex justify-end space-x-2">
-                                      <button className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                                        onClick={() => { setOpenNumberEditorEmailId(null); setNewCustomerNumber(''); }}>
-                                        Abbrechen
-                                      </button>
-                                      <button className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                        onClick={() => handleAddCustomerNumber(email, newCustomerNumber)}>
-                                        Speichern
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setOpenNumberEditorEmailId(email.id); setNewCustomerNumber(''); }}
-                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-                                    title="Kundennummer hinzufügen"
-                                  >
-                                    <PlusIcon className="mr-1 h-3 w-3" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {email.category ? (
-                              <div className="space-y-1">
-                                {email.all_categories && email.all_categories.length > 0 ? (
-                                  <div className="flex flex-wrap">
-                                    {email.all_categories.map((category, index) => (
-                                      <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-1 mb-1">
-                                        <TagIcon className="mr-1 h-3 w-3" />
-                                        {category}
-                                        <button
-                                          onClick={() => {
-                                            handleRemove(email,index);
-                                          }}
-                                          className="ml-1 text-green-700 hover:text-red-600"
-                                        >
-                                          <XMarkIcon className="h-3 w-3" />
-                                        </button>
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                    <TagIcon className="mr-1 h-3 w-3" />
-                                    {email.category}
-                                  </span>
-                                )}
-                                <div className="relative inline-block dropdown-wrapper">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                      setCategoryDropdownPosition({
-                                        top: rect.bottom + 4,
-                                        left: rect.left,
-                                      });
-                                      setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
-                                    }}
-                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
-                                  >
-                                    <PlusIcon className="mr-1 h-3 w-3" />
-                                  </button>
-                                    {openDropdownEmailId === email.id &&
-                                      createPortal(
-                                        <div
-                                          className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem] max-w-sm"
-                                          style={{
-                                            top: categoryDropdownPosition.top,
-                                            left: categoryDropdownPosition.left,
-                                          }}
-                                          onMouseDown={(e) => e.stopPropagation()} // <-- IMPORTANT
-                                        >
-                                          {categories
-                                            .filter((item) => !email.all_categories?.includes(item))
-                                            .map((cat) => (
-                                              <div
-                                                key={cat}
-                                                onClick={() => handleCategorySelect(email, cat)}
-                                                className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
-                                              >
-                                                {cat}
-                                              </div>
-                                            ))}
-                                        </div>,
-                                        document.body
-                                      )
-                                    }
-
-                                </div>
-                                {email.all_customer_numbers && email.all_customer_numbers.length > 0 && 
-                                 email.all_categories && email.all_categories.length > 0 && ((email.all_categories.length == 1 && email.all_categories[0] == "Sonstiges")? false: true)&&(
-                                  <div className="text-xs text-blue-600 mt-1">
-                                    {email.all_customer_numbers.length} Weiterleitungen
-                                  </div>
-                                )}
-                              </div>
-                                ) : isWatchdogTimeout(email) ? (
-                                  <div className="space-y-1">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-200 text-red-900">
-                                      Analyse fehlgeschlagen
-                                    </span>
-
-                                    {/* ✅ trotzdem manuell kategorisierbar */}
-                                    <div className="relative inline-block dropdown-wrapper">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                          setCategoryDropdownPosition({
-                                            top: rect.bottom + 4,
-                                            left: rect.left,
-                                          });
-                                          setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
-                                        }}
-                                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
-                                        title="Kategorie manuell hinzufügen"
-                                      >
-                                        <PlusIcon className="mr-1 h-3 w-3" />
-                                      </button>
-
-                                      {openDropdownEmailId === email.id &&
-                                        createPortal(
-                                          <div
-                                            className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem]"
-                                            style={{
-                                              top: categoryDropdownPosition.top,
-                                              left: categoryDropdownPosition.left,
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {email.category ? (
+                                <div className="space-y-1">
+                                  {email.all_categories && email.all_categories.length > 0 ? (
+                                    <div className="flex flex-wrap">
+                                      {email.all_categories.map((category, index) => (
+                                        <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-1 mb-1">
+                                          <TagIcon className="mr-1 h-3 w-3" />
+                                          {category}
+                                          <button
+                                            onClick={() => {
+                                              handleRemove(email,index);
                                             }}
-                                            onMouseDown={(e) => e.stopPropagation()}
+                                            className="ml-1 text-green-700 hover:text-red-600"
                                           >
-                                            {categories
-                                              .filter(cat => !email.all_categories?.includes(cat))
-                                              .map(cat => (
-                                                <div
-                                                  key={cat}
-                                                  onClick={() => handleCategorySelect(email, cat)}
-                                                  className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100"
-                                                >
-                                                  {cat}
-                                                </div>
-                                              ))}
-                                          </div>,
-                                          document.body
-                                        )
-                                      }
+                                            <XMarkIcon className="h-3 w-3" />
+                                          </button>
+                                        </span>
+                                      ))}
                                     </div>
-                                  </div>
-                                )
-                                : isAnalyzing(email) ? (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                    Wird analysiert...
-                                  </span>
-                                ) : (
-                              <div>
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                  Nicht kategorisiert
-                                </span>
-
-                                <div className="relative inline-block dropdown-wrapper">
+                                  ) : (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      <TagIcon className="mr-1 h-3 w-3" />
+                                      {email.category}
+                                    </span>
+                                  )}
+                                  <div className="relative inline-block dropdown-wrapper">
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -1656,12 +1577,10 @@ const Emails: React.FC = () => {
                                         });
                                         setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
                                       }}
-
                                       className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
                                     >
                                       <PlusIcon className="mr-1 h-3 w-3" />
                                     </button>
-
                                       {openDropdownEmailId === email.id &&
                                         createPortal(
                                           <div
@@ -1689,190 +1608,308 @@ const Emails: React.FC = () => {
                                       }
 
                                   </div>
-                              </div>
-                            )}
-                          </td>
-
-                          {/* Aktionen */}
-                          <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex flex-col items-center space-y-2">
-                              {isWatchdogTimeout(email) && (
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-
-                                    // ✅ UI sofort umstellen: weg von timeout -> "Wird analysiert..."
-                                    setEmails(prev =>
-                                      prev.map(x =>
-                                        x.id === email.id
-                                          ? {
-                                              ...x,
-                                              analysis_completed: false,
-                                              text_analysis_result: null,
-                                              image_analysis_result: null,
-                                            }
-                                          : x
-                                      )
-                                    );
-
-                                    // 🔁 Analyse neu starten
-                                    await analysisService.startBackgroundAnalysis(
-                                      email.id,
-                                      email.message_id,
-                                      email.to_recipients,
-                                      settings.forwardingEmail
-                                    );
-
-                                    // 🔄 optional Reload (damit Resultate reinlaufen)
-                                    await loadEmails();
-                                  }}
-                                  className="inline-flex items-center px-3 py-1 border border-red-400 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-red-50 text-red-700"
-                                  title="Analyse erneut starten"
-                                >
-                                  Analyse erneut
-                                </button>
-                              )}
-
-
-                              {(email.customer_number && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleForwardClick(email.id);
-                                  }}
-                                  className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                                >
-                                  Weiterleitung auslösen
-                                </button>
-                              )}
-
-                              {email.status === EMAIL_STATUS.WEITERGELEITET && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
-                                  Weiterleitung gesendet
-                                </span>
-                              )}
-                              
-                              {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    manualSendReply(email.id);
-                                  }}
-                                  className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                                >
-                                  Anfrage senden
-                                </button>
-                              )}
-                              {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
-                                  Kundennummer angefragt
-                                </span>
-                              )}
-                              {sentReplies[email.id] && email.status !== EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
-                                  Antwort gesendet
-                                </span>
-                              )}
-
-                              {/* Hide / Unhide toggle */}
-                              {email.status === EMAIL_STATUS.AUSGEBLENDET ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const nextStatus = !email.customer_number
-                                      ? EMAIL_STATUS.FEHLENDE_KUNDENNUMMER
-                                      : (email.category ? EMAIL_STATUS.KATEGORISIERT : EMAIL_STATUS.UNKATEGORISIERT);
-
-                                    handleStatusUpdate(email.id, nextStatus);
-                                  }}
-                                  className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
-                                  title="E-Mail einblenden"
-                                >
-                                  Einblenden
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleStatusUpdate(email.id, EMAIL_STATUS.AUSGEBLENDET);
-                                  }}
-                                  className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
-                                  title="E-Mail ausblenden"
-                                >
-                                  Ausblenden
-                                </button>
-                              )}
-
-                              {/* NEW: Manuelle Weiterleitung */}
-                              <div className="relative inline-block manual-forward-wrapper">
-                                
-                                {openManualForwardEmailId === email.id ? (
-                                  <div className="absolute z-50 bottom-full mb-2 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-[18rem] max-w-[90vw]">
-                                    <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
-
-                                    {/* Input + natives Dropdown per datalist */}
-                                    <input
-                                      autoFocus
-                                      type="email"
-                                      placeholder="name@example.com"
-                                      value={manualForwardRecipient}
-                                      onChange={(e) => setManualForwardRecipient(e.target.value)}
-                                      list={`forward-suggestions-${email.id}`}
-                                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                                      onKeyDown={async (e) => {
-                                        if (e.key === 'Enter') {
-                                          await manualForwardEmails(email.id, manualForwardRecipient);
-                                        }
-                                        if (e.key === 'Escape') {
-                                          setOpenManualForwardEmailId(null);
-                                          setManualForwardRecipient('');
-                                        }
-                                      }}
-                                    />
-
-                                    <datalist id={`forward-suggestions-${email.id}`}> 
-                                      {forwardSuggestions.map((s) => (
-                                        <option key={s} value={s} />
-                                      ))}
-                                    </datalist>
-
-                                    <div className="flex justify-end space-x-2">
-                                      <button
-                                        className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                                        onClick={() => { setOpenManualForwardEmailId(null); setManualForwardRecipient(''); }}
-                                      >
-                                        Abbrechen
-                                      </button>
-                                      <button
-                                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                        onClick={async () => {
-                                          await manualForwardEmails(email.id, manualForwardRecipient);
-                                        }}
-                                      >
-                                        Senden
-                                      </button>
+                                  {email.all_customer_numbers && email.all_customer_numbers.length > 0 && 
+                                  email.all_categories && email.all_categories.length > 0 && ((email.all_categories.length == 1 && email.all_categories[0] == "Sonstiges")? false: true)&&(
+                                    <div className="text-xs text-blue-600 mt-1">
+                                      {email.all_customer_numbers.length} Weiterleitungen
                                     </div>
-                                  </div>
-                                ) : (
-                                  /* Button bleibt wie bei dir */
+                                  )}
+                                </div>
+                                  ) : isWatchdogTimeout(email) ? (
+                                    <div className="space-y-1">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-200 text-red-900">
+                                        Analyse fehlgeschlagen
+                                      </span>
+
+                                      {/* ✅ trotzdem manuell kategorisierbar */}
+                                      <div className="relative inline-block dropdown-wrapper">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                            setCategoryDropdownPosition({
+                                              top: rect.bottom + 4,
+                                              left: rect.left,
+                                            });
+                                            setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
+                                          }}
+                                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                                          title="Kategorie manuell hinzufügen"
+                                        >
+                                          <PlusIcon className="mr-1 h-3 w-3" />
+                                        </button>
+
+                                        {openDropdownEmailId === email.id &&
+                                          createPortal(
+                                            <div
+                                              className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem]"
+                                              style={{
+                                                top: categoryDropdownPosition.top,
+                                                left: categoryDropdownPosition.left,
+                                              }}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                            >
+                                              {categories
+                                                .filter(cat => !email.all_categories?.includes(cat))
+                                                .map(cat => (
+                                                  <div
+                                                    key={cat}
+                                                    onClick={() => handleCategorySelect(email, cat)}
+                                                    className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100"
+                                                  >
+                                                    {cat}
+                                                  </div>
+                                                ))}
+                                            </div>,
+                                            document.body
+                                          )
+                                        }
+                                      </div>
+                                    </div>
+                                  )
+                                  :  q.state === "queued" ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                      In Warteschlange...
+                                    </span>
+                                  ) : (q.state === "running" || isAnalyzing(email)) ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                      Wird analysiert...
+                                    </span>
+                                  ) : (
+                                <div>
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                    Nicht kategorisiert
+                                  </span>
+
+                                  <div className="relative inline-block dropdown-wrapper">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                          setCategoryDropdownPosition({
+                                            top: rect.bottom + 4,
+                                            left: rect.left,
+                                          });
+                                          setOpenDropdownEmailId(prev => prev === email.id ? null : email.id);
+                                        }}
+
+                                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                                      >
+                                        <PlusIcon className="mr-1 h-3 w-3" />
+                                      </button>
+
+                                        {openDropdownEmailId === email.id &&
+                                          createPortal(
+                                            <div
+                                              className="dropdown-wrapper fixed z-50 bg-white border border-gray-200 rounded shadow-md max-h-60 overflow-y-auto min-w-[10rem] max-w-sm"
+                                              style={{
+                                                top: categoryDropdownPosition.top,
+                                                left: categoryDropdownPosition.left,
+                                              }}
+                                              onMouseDown={(e) => e.stopPropagation()} // <-- IMPORTANT
+                                            >
+                                              {categories
+                                                .filter((item) => !email.all_categories?.includes(item))
+                                                .map((cat) => (
+                                                  <div
+                                                    key={cat}
+                                                    onClick={() => handleCategorySelect(email, cat)}
+                                                    className="cursor-pointer px-3 py-2 text-sm hover:bg-green-100 break-words"
+                                                  >
+                                                    {cat}
+                                                  </div>
+                                                ))}
+                                            </div>,
+                                            document.body
+                                          )
+                                        }
+
+                                    </div>
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Aktionen */}
+                            <td className="px-6 py-4 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-col items-center space-y-2">
+                                {isWatchdogTimeout(email) && (
                                   <button
-                                    onClick={(e) => {
+                                    onClick={async (e) => {
                                       e.stopPropagation();
-                                      setOpenManualForwardEmailId(email.id);
-                                      setManualForwardRecipient('');
+
+                                      // ✅ UI sofort umstellen: weg von timeout -> "Wird analysiert..."
+                                      setEmails(prev =>
+                                        prev.map(x =>
+                                          x.id === email.id
+                                            ? {
+                                                ...x,
+                                                analysis_completed: false,
+                                                text_analysis_result: null,
+                                                image_analysis_result: null,
+                                              }
+                                            : x
+                                        )
+                                      );
+
+                                      // 🔁 Analyse neu starten
+                                      await analysisService.startBackgroundAnalysis(
+                                        email.id,
+                                        email.message_id,
+                                        email.to_recipients,
+                                        settings.forwardingEmail
+                                      );
+
+                                      // 🔄 optional Reload (damit Resultate reinlaufen)
+                                      await loadEmails();
                                     }}
-                                    className="inline-flex items-center px-3 py-1 mr-2 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
-                                    title="Manuelle Weiterleitung"
+                                    className="inline-flex items-center px-3 py-1 border border-red-400 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-red-50 text-red-700"
+                                    title="Analyse erneut starten"
                                   >
-                                    Manuelle Weiterleitung
+                                    Analyse erneut
                                   </button>
                                 )}
 
+
+                                {(email.customer_number && email.category) && !(email.status === EMAIL_STATUS.WEITERGELEITET) && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleForwardClick(email.id);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                  >
+                                    Weiterleitung auslösen
+                                  </button>
+                                )}
+
+                                {email.status === EMAIL_STATUS.WEITERGELEITET && (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                                    Weiterleitung gesendet
+                                  </span>
+                                )}
+                                
+                                {(!email.customer_number || email.category == "Sonstiges") && !sentReplies[email.id] && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      manualSendReply(email.id);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1 mr-2 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                  >
+                                    Anfrage senden
+                                  </button>
+                                )}
+                                {email.status === EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                                    Kundennummer angefragt
+                                  </span>
+                                )}
+                                {sentReplies[email.id] && email.status !== EMAIL_STATUS.KUNDENNUMMER_ANGEFRAGT && (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
+                                    Antwort gesendet
+                                  </span>
+                                )}
+
+                                {/* Hide / Unhide toggle */}
+                                {email.status === EMAIL_STATUS.AUSGEBLENDET ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const nextStatus = !email.customer_number
+                                        ? EMAIL_STATUS.FEHLENDE_KUNDENNUMMER
+                                        : (email.category ? EMAIL_STATUS.KATEGORISIERT : EMAIL_STATUS.UNKATEGORISIERT);
+
+                                      handleStatusUpdate(email.id, nextStatus);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                    title="E-Mail einblenden"
+                                  >
+                                    Einblenden
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStatusUpdate(email.id, EMAIL_STATUS.AUSGEBLENDET);
+                                    }}
+                                    className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                    title="E-Mail ausblenden"
+                                  >
+                                    Ausblenden
+                                  </button>
+                                )}
+
+                                {/* NEW: Manuelle Weiterleitung */}
+                                <div className="relative inline-block manual-forward-wrapper">
+                                  
+                                  {openManualForwardEmailId === email.id ? (
+                                    <div className="absolute z-50 bottom-full mb-2 right-0 bg-white border border-gray-200 rounded shadow-md p-3 w-[18rem] max-w-[90vw]">
+                                      <label className="block text-xs text-gray-600 mb-1">Empfänger</label>
+
+                                      {/* Input + natives Dropdown per datalist */}
+                                      <input
+                                        autoFocus
+                                        type="email"
+                                        placeholder="name@example.com"
+                                        value={manualForwardRecipient}
+                                        onChange={(e) => setManualForwardRecipient(e.target.value)}
+                                        list={`forward-suggestions-${email.id}`}
+                                        className="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                                        onKeyDown={async (e) => {
+                                          if (e.key === 'Enter') {
+                                            await manualForwardEmails(email.id, manualForwardRecipient);
+                                          }
+                                          if (e.key === 'Escape') {
+                                            setOpenManualForwardEmailId(null);
+                                            setManualForwardRecipient('');
+                                          }
+                                        }}
+                                      />
+
+                                      <datalist id={`forward-suggestions-${email.id}`}> 
+                                        {forwardSuggestions.map((s) => (
+                                          <option key={s} value={s} />
+                                        ))}
+                                      </datalist>
+
+                                      <div className="flex justify-end space-x-2">
+                                        <button
+                                          className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                          onClick={() => { setOpenManualForwardEmailId(null); setManualForwardRecipient(''); }}
+                                        >
+                                          Abbrechen
+                                        </button>
+                                        <button
+                                          className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                          onClick={async () => {
+                                            await manualForwardEmails(email.id, manualForwardRecipient);
+                                          }}
+                                        >
+                                          Senden
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Button bleibt wie bei dir */
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenManualForwardEmailId(email.id);
+                                        setManualForwardRecipient('');
+                                      }}
+                                      className="inline-flex items-center px-3 py-1 mr-2 border border-gray-300 text-xs font-medium rounded-md shadow-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 text-gray-700"
+                                      title="Manuelle Weiterleitung"
+                                    >
+                                      Manuelle Weiterleitung
+                                    </button>
+                                  )}
+
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                          </tr>
+                        );
+                      })
                       : (
                         <div className="text-center py-10">
                           <p className="text-gray-500">Keine E-Mails gefunden</p>
