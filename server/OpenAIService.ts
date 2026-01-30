@@ -11,6 +11,17 @@ const { htmlToText } = require("html-to-text");
 // at top of file
 const pdfParse = require("pdf-parse");
 
+function normalizeCustomerNumber(raw: any): string {
+  return String(raw ?? "")
+    .replace(/\D/g, "") // entfernt alles außer Zahlen
+    .trim();
+}
+
+function isValidCustomerNumber(num: any): boolean {
+  const s = String(num ?? "").trim();
+  return /^(12|13|14|15|82|83|84|85)\d{8}$/.test(s);
+}
+
 export function normalizeEmailHtml(html: string): string {
   return htmlToText(html, {
     wordwrap: false,
@@ -616,24 +627,50 @@ class OpenAIService {
         result.allCategories = [result.category || 'Sonstiges'];
       }
         
-      // Bereinige Kundennummern (entferne Duplikate und leere Werte)
+      // // Bereinige Kundennummern (entferne Duplikate und leere Werte)
 
-      if (result.customerNumber) {
-        result.customerNumber = result.customerNumber.toString().trim()
-      }
-      if (result.customerNumber === "null") {
-        result.customerNumber = null
-      }
+      // if (result.customerNumber) {
+      //   result.customerNumber = result.customerNumber.toString().trim()
+      // }
+      // if (result.customerNumber === "null") {
+      //   result.customerNumber = null
+      // }
+      // if (Array.isArray(result.allCustomerNumbers)) {
+      //   result.allCustomerNumbers = [...new Set(
+      //     result.allCustomerNumbers
+      //       .filter((num: any) => num && num.toString().trim())
+      //       .map((num: any) => num.toString().trim())
+      //   )];
+      // } else {
+      //   result.allCustomerNumbers = result.customerNumber ? [result.customerNumber] : [];
+      // }
+      // // Stelle sicher, dass customerNumber gesetzt ist, wenn Kundennummern vorhanden sind
+      // if (!result.customerNumber && result.allCustomerNumbers.length > 0) {
+      //   result.customerNumber = result.allCustomerNumbers[0];
+      // }
+
+      // Bereinige Kundennummern (nur gültige, Duplikate raus)
+
+      // allCustomerNumbers normalisieren -> validieren -> unique
       if (Array.isArray(result.allCustomerNumbers)) {
         result.allCustomerNumbers = [...new Set(
           result.allCustomerNumbers
-            .filter((num: any) => num && num.toString().trim())
-            .map((num: any) => num.toString().trim())
+            .map(normalizeCustomerNumber)
+            .filter((n: string) => isValidCustomerNumber(n))
         )];
       } else {
-        result.allCustomerNumbers = result.customerNumber ? [result.customerNumber] : [];
+        result.allCustomerNumbers = [];
       }
-      // Stelle sicher, dass customerNumber gesetzt ist, wenn Kundennummern vorhanden sind
+
+      // customerNumber normalisieren + validieren
+      if (result.customerNumber !== null && result.customerNumber !== undefined) {
+        const cleaned = normalizeCustomerNumber(result.customerNumber);
+        result.customerNumber = isValidCustomerNumber(cleaned) ? cleaned : null;
+      } else {
+        result.customerNumber = null;
+      }
+
+      // Falls customerNumber fehlt aber Array Werte hat -> erste gültige nehmen
       if (!result.customerNumber && result.allCustomerNumbers.length > 0) {
         result.customerNumber = result.allCustomerNumbers[0];
       }
